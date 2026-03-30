@@ -125,6 +125,63 @@ function parseScheduleInput(scheduleType, daysOfWeek) {
   return { scheduleType: nextScheduleType, daysOfWeekCsv: '' };
 }
 
+function parseDateYmd(dateStr) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    return null;
+  }
+  const [yearStr, monthStr, dayStr] = dateStr.split('-');
+  const year = Number(yearStr);
+  const month = Number(monthStr);
+  const day = Number(dayStr);
+  const date = new Date(year, month - 1, day);
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return null;
+  }
+  return date;
+}
+
+function formatDateYmd(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function parseDaysCsv(daysCsv) {
+  if (!daysCsv) return [];
+  return daysCsv
+    .split(',')
+    .filter((v) => v !== '')
+    .map((v) => Number(v))
+    .filter((v) => Number.isInteger(v) && v >= 0 && v <= 6);
+}
+
+function isHabitDueOnDate(habit, targetDate) {
+  const createdDate = new Date(habit.created_at);
+  if (!Number.isNaN(createdDate.getTime())) {
+    const createdYmd = formatDateYmd(createdDate);
+    const targetYmd = formatDateYmd(targetDate);
+    if (targetYmd < createdYmd) return false;
+  }
+
+  if (habit.schedule_type === 'weekly') {
+    if (Number.isNaN(createdDate.getTime())) return false;
+    return targetDate.getDay() === createdDate.getDay();
+  }
+
+  if (habit.schedule_type === 'specific_days') {
+    const days = parseDaysCsv(habit.days_of_week);
+    return days.includes(targetDate.getDay());
+  }
+
+  return true;
+}
+
 function auth(req, res, next) {
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) {
@@ -350,6 +407,129 @@ app.get('/api/entries/today', auth, async (req, res) => {
     );
 
     return res.json({ date: todayIso, habits: rows });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/api/entries/day', auth, async (req, res) => {
+  try {
+    const { date } = req.query;
+    if (typeof date !== 'string') {
+      return res.status(400).json({ error: 'date query param is required (YYYY-MM-DD)' });
+    }
+    const targetDate = parseDateYmd(date);
+    if (!targetDate) {
+      return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
+    }
+
+    const habits = await all(
+      `
+      SELECT id, name, schedule_type, days_of_week, created_at
+      FROM habits
+      WHERE user_id = ?
+      ORDER BY id DESC
+      `,
+      [req.user.userId]
+    );
+
+    const entries = await all(
+      `
+      SELECT e.habit_id, e.completed, COALESCE(e.notes, '') AS notes
+      FROM habit_entries e
+      JOIN habits h ON h.id = e.habit_id
+      WHERE h.user_id = ? AND e.entry_date = ?
+      `,
+      [req.user.userId, date]
+    );
+    const entryByHabitId = new Map(entries.map((e) => [e.habit_id, e]));
+
+    const dueHabits = habits
+      .filter((habit) => isHabitDueOnDate(habit, targetDate))
+      .map((habit) => {
+        const entry = entryByHabitId.get(habit.id);
+        return {
+          habitId: habit.id,
+          name: habit.name,
+          scheduleType: habit.schedule_type,
+          daysOfWeek: habit.days_of_week || '',
+          completed: entry ? entry.completed : 0,
+          notes: entry ? entry.notes : '',
+        };
+      });
+
+    return res.json({ date, habits: dueHabits });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.get('/api/entries/month', auth, async (req, res) => {
+  try {
+    const { month } = req.query;
+    if (typeof month !== 'string' || !/^\d{4}-\d{2}$/.test(month)) {
+      return res.status(400).json({ error: 'month query param is required (YYYY-MM)' });
+    }
+
+    const [yearStr, monthStr] = month.split('-');
+    const year = Number(yearStr);
+    const monthIndex = Number(monthStr) - 1;
+    const firstDay = new Date(year, monthIndex, 1);
+    if (Number.isNaN(firstDay.getTime()) || firstDay.getMonth() !== monthIndex) {
+      return res.status(400).json({ error: 'Invalid month format. Use YYYY-MM' });
+    }
+    const lastDay = new Date(year, monthIndex + 1, 0);
+    const startYmd = formatDateYmd(firstDay);
+    const endYmd = formatDateYmd(lastDay);
+
+    const habits = await all(
+      `
+      SELECT id, name, schedule_type, days_of_week, created_at
+      FROM habits
+      WHERE user_id = ?
+      ORDER BY id DESC
+      `,
+      [req.user.userId]
+    );
+
+    const entries = await all(
+      `
+      SELECT e.habit_id, e.entry_date, e.completed
+      FROM habit_entries e
+      JOIN habits h ON h.id = e.habit_id
+      WHERE h.user_id = ?
+        AND e.entry_date >= ?
+        AND e.entry_date <= ?
+      `,
+      [req.user.userId, startYmd, endYmd]
+    );
+    const entriesByDayHabit = new Map(
+      entries.map((e) => [`${e.entry_date}::${e.habit_id}`, Number(e.completed)])
+    );
+
+    const days = [];
+    for (let d = 1; d <= lastDay.getDate(); d += 1) {
+      const current = new Date(year, monthIndex, d);
+      const date = formatDateYmd(current);
+      const dueHabits = habits.filter((habit) => isHabitDueOnDate(habit, current));
+      const totalHabits = dueHabits.length;
+      let completedHabits = 0;
+      dueHabits.forEach((habit) => {
+        const key = `${date}::${habit.id}`;
+        if (entriesByDayHabit.get(key) === 1) {
+          completedHabits += 1;
+        }
+      });
+
+      let status = 'none';
+      if (totalHabits > 0) {
+        status = completedHabits === totalHabits ? 'green' : 'red';
+      }
+
+      days.push({ date, status, totalHabits, completedHabits });
+    }
+
+    return res.json({ month, days });
   } catch (err) {
     return res.status(500).json({ error: 'Server error' });
   }

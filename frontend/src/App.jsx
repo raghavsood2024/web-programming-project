@@ -87,6 +87,13 @@ export default function App() {
   const [selectedDays, setSelectedDays] = useState([]);
   const [today, setToday] = useState({ date: '', habits: [] });
   const [allHabits, setAllHabits] = useState([]);
+  const [activeTab, setActiveTab] = useState('habits');
+  const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
+  const [calendarDays, setCalendarDays] = useState([]);
+  const [calendarLoading, setCalendarLoading] = useState(false);
+  const [selectedCalendarDate, setSelectedCalendarDate] = useState('');
+  const [selectedDateHabits, setSelectedDateHabits] = useState([]);
+  const [selectedDateLoading, setSelectedDateLoading] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [editHabitId, setEditHabitId] = useState(null);
@@ -118,10 +125,35 @@ export default function App() {
     setAllHabits(normalizeHabitsResponse(data));
   }
 
+  async function loadMonth(month = selectedMonth, authToken = token) {
+    setCalendarLoading(true);
+    try {
+      const data = await api(`/api/entries/month?month=${month}`, 'GET', undefined, authToken);
+      setCalendarDays(Array.isArray(data?.days) ? data.days : []);
+    } finally {
+      setCalendarLoading(false);
+    }
+  }
+
+  async function loadDayDetails(date, authToken = token) {
+    setSelectedDateLoading(true);
+    try {
+      const data = await api(`/api/entries/day?date=${date}`, 'GET', undefined, authToken);
+      setSelectedDateHabits(Array.isArray(data?.habits) ? data.habits : []);
+    } finally {
+      setSelectedDateLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (!token) return;
-    Promise.all([loadToday(), loadHabits()]).catch((err) => setError(err.message));
+    Promise.all([loadToday(), loadHabits(), loadMonth(selectedMonth)]).catch((err) => setError(err.message));
   }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    loadMonth(selectedMonth).catch((err) => setError(err.message));
+  }, [selectedMonth, token]);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -166,6 +198,7 @@ export default function App() {
       setScheduleType('daily');
       setSelectedDays([]);
       await Promise.all([loadToday(), loadHabits()]);
+      await loadMonth(selectedMonth);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -183,6 +216,7 @@ export default function App() {
           h.habitId === habitId ? { ...h, completed: completed ? 1 : 0 } : h
         ),
       }));
+      await loadMonth(selectedMonth);
     } catch (err) {
       setError(err.message);
     }
@@ -246,7 +280,7 @@ export default function App() {
         },
         token
       );
-      await Promise.all([loadToday(), loadHabits()]);
+      await Promise.all([loadToday(), loadHabits(), loadMonth(selectedMonth)]);
       cancelEdit();
     } catch (err) {
       setError(err.message);
@@ -265,6 +299,7 @@ export default function App() {
         habits: prev.habits.filter((h) => h.habitId !== habitId),
       }));
       setAllHabits((prev) => prev.filter((h) => h.habitId !== habitId));
+      await loadMonth(selectedMonth);
       if (editHabitId === habitId) {
         cancelEdit();
       }
@@ -280,6 +315,9 @@ export default function App() {
     setToken('');
     setToday({ date: '', habits: [] });
     setAllHabits([]);
+    setCalendarDays([]);
+    setSelectedCalendarDate('');
+    setSelectedDateHabits([]);
     setNoteDrafts({});
   }
 
@@ -309,6 +347,28 @@ export default function App() {
       notes: todayData ? todayData.notes : '',
     };
   });
+
+  const monthFirstDay = selectedMonth ? new Date(`${selectedMonth}-01T00:00:00`) : new Date();
+  const monthStartOffset = Number.isNaN(monthFirstDay.getTime()) ? 0 : monthFirstDay.getDay();
+  const dayMap = new Map(calendarDays.map((day) => [day.date, day]));
+  const calendarCells = [];
+  for (let i = 0; i < monthStartOffset; i += 1) {
+    calendarCells.push({ empty: true, key: `empty-${i}` });
+  }
+  calendarDays.forEach((day, index) => {
+    const dayNum = Number(day.date.split('-')[2]);
+    calendarCells.push({ ...day, dayNum, empty: false, key: `day-${index}-${day.date}` });
+  });
+
+  async function handleCalendarDayClick(date) {
+    setSelectedCalendarDate(date);
+    setError('');
+    try {
+      await loadDayDetails(date);
+    } catch (err) {
+      setError(err.message);
+    }
+  }
 
   if (!token) {
     return (
@@ -359,131 +419,218 @@ export default function App() {
         </div>
       </header>
 
-      <form onSubmit={addHabit} className="card">
-        <h2>Add Habit</h2>
-        <input
-          type="text"
-          placeholder="e.g. Drink 2L water"
-          value={habitName}
-          onChange={(e) => setHabitName(e.target.value)}
-        />
-        <select value={scheduleType} onChange={(e) => setScheduleType(e.target.value)}>
-          <option value="daily">Daily</option>
-          <option value="weekly">Weekly</option>
-          <option value="specific_days">Specific days</option>
-        </select>
-        {scheduleType === 'specific_days' && (
-          <div className="day-picker">
-            {WEEK_DAYS.map((day) => (
-              <label key={day.value}>
-                <input
-                  type="checkbox"
-                  checked={selectedDays.includes(day.value)}
-                  onChange={() => toggleSelectedDay(day.value)}
-                />
-                {day.label}
-              </label>
-            ))}
-          </div>
-        )}
-        <button type="submit" disabled={loading}>Add</button>
-      </form>
+      <div className="tabs">
+        <button
+          type="button"
+          className={activeTab === 'habits' ? 'tab tab-active' : 'tab'}
+          onClick={() => setActiveTab('habits')}
+        >
+          Habits
+        </button>
+        <button
+          type="button"
+          className={activeTab === 'calendar' ? 'tab tab-active' : 'tab'}
+          onClick={() => setActiveTab('calendar')}
+        >
+          Calendar
+        </button>
+      </div>
 
-      <section className="card">
-        <h2>Habits (Today: {today.date || '-'})</h2>
-        {habitsForView.length === 0 && <p>No habits yet. Add one above.</p>}
-        <ul>
-          {habitsForView.map((habit) => (
-            <li key={habit.habitId}>
-              <div className="habit-row">
-                <label className="habit-check">
-                  <input
-                    type="checkbox"
-                    checked={Boolean(habit.completed)}
-                    disabled={!habit.isDueToday}
-                    onChange={(e) => toggleHabit(habit.habitId, e.target.checked)}
-                  />
-                </label>
-                <div className="habit-main">
-                  {editHabitId === habit.habitId ? (
-                    <div className="edit-panel">
+      {activeTab === 'habits' && (
+        <>
+          <form onSubmit={addHabit} className="card">
+            <h2>Add Habit</h2>
+            <input
+              type="text"
+              placeholder="e.g. Drink 2L water"
+              value={habitName}
+              onChange={(e) => setHabitName(e.target.value)}
+            />
+            <select value={scheduleType} onChange={(e) => setScheduleType(e.target.value)}>
+              <option value="daily">Daily</option>
+              <option value="weekly">Weekly</option>
+              <option value="specific_days">Specific days</option>
+            </select>
+            {scheduleType === 'specific_days' && (
+              <div className="day-picker">
+                {WEEK_DAYS.map((day) => (
+                  <label key={day.value}>
+                    <input
+                      type="checkbox"
+                      checked={selectedDays.includes(day.value)}
+                      onChange={() => toggleSelectedDay(day.value)}
+                    />
+                    {day.label}
+                  </label>
+                ))}
+              </div>
+            )}
+            <button type="submit" disabled={loading}>Add</button>
+          </form>
+
+          <section className="card">
+            <h2>Habits (Today: {today.date || '-'})</h2>
+            {habitsForView.length === 0 && <p>No habits yet. Add one above.</p>}
+            <ul>
+              {habitsForView.map((habit) => (
+                <li key={habit.habitId}>
+                  <div className="habit-row">
+                    <label className="habit-check">
                       <input
-                        type="text"
-                        value={editHabitName}
-                        onChange={(e) => setEditHabitName(e.target.value)}
+                        type="checkbox"
+                        checked={Boolean(habit.completed)}
+                        disabled={!habit.isDueToday}
+                        onChange={(e) => toggleHabit(habit.habitId, e.target.checked)}
                       />
-                      <select value={editScheduleType} onChange={(e) => setEditScheduleType(e.target.value)}>
-                        <option value="daily">Daily</option>
-                        <option value="weekly">Weekly</option>
-                        <option value="specific_days">Specific days</option>
-                      </select>
-                      {editScheduleType === 'specific_days' && (
-                        <div className="day-picker">
-                          {WEEK_DAYS.map((day) => (
-                            <label key={day.value}>
-                              <input
-                                type="checkbox"
-                                checked={editSelectedDays.includes(day.value)}
-                                onChange={() => toggleEditSelectedDay(day.value)}
-                              />
-                              {day.label}
-                            </label>
-                          ))}
+                    </label>
+                    <div className="habit-main">
+                      {editHabitId === habit.habitId ? (
+                        <div className="edit-panel">
+                          <input
+                            type="text"
+                            value={editHabitName}
+                            onChange={(e) => setEditHabitName(e.target.value)}
+                          />
+                          <select value={editScheduleType} onChange={(e) => setEditScheduleType(e.target.value)}>
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="specific_days">Specific days</option>
+                          </select>
+                          {editScheduleType === 'specific_days' && (
+                            <div className="day-picker">
+                              {WEEK_DAYS.map((day) => (
+                                <label key={day.value}>
+                                  <input
+                                    type="checkbox"
+                                    checked={editSelectedDays.includes(day.value)}
+                                    onChange={() => toggleEditSelectedDay(day.value)}
+                                  />
+                                  {day.label}
+                                </label>
+                              ))}
+                            </div>
+                          )}
                         </div>
+                      ) : (
+                        <span>
+                          {habit.name}
+                          <span className="habit-meta"> ({formatScheduleLabel(habit)})</span>
+                        </span>
                       )}
                     </div>
-                  ) : (
-                    <span>
-                      {habit.name}
-                      <span className="habit-meta"> ({formatScheduleLabel(habit)})</span>
-                    </span>
-                  )}
-                </div>
-                <div className="habit-actions">
-                  {editHabitId === habit.habitId ? (
-                    <>
-                      <button type="button" onClick={() => saveEdit(habit.habitId)} disabled={loading}>
-                        Save
-                      </button>
-                      <button type="button" onClick={cancelEdit} disabled={loading}>
-                        Cancel
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button type="button" onClick={() => startEdit(habit)} disabled={loading}>
-                        Edit
-                      </button>
-                      <button type="button" onClick={() => deleteHabit(habit.habitId)} disabled={loading}>
-                        Delete
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
-              <div className="habit-note">
-                <input
-                  type="text"
-                  placeholder={habit.isDueToday ? 'Add note about this activity' : 'Not scheduled today'}
-                  value={noteDrafts[habit.habitId] || ''}
-                  disabled={!habit.isDueToday}
-                  onChange={(e) =>
-                    setNoteDrafts((prev) => ({ ...prev, [habit.habitId]: e.target.value }))
-                  }
-                />
+                    <div className="habit-actions">
+                      {editHabitId === habit.habitId ? (
+                        <>
+                          <button type="button" onClick={() => saveEdit(habit.habitId)} disabled={loading}>
+                            Save
+                          </button>
+                          <button type="button" onClick={cancelEdit} disabled={loading}>
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button type="button" onClick={() => startEdit(habit)} disabled={loading}>
+                            Edit
+                          </button>
+                          <button type="button" onClick={() => deleteHabit(habit.habitId)} disabled={loading}>
+                            Delete
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  <div className="habit-note">
+                    <input
+                      type="text"
+                      placeholder={habit.isDueToday ? 'Add note about this activity' : 'Not scheduled today'}
+                      value={noteDrafts[habit.habitId] || ''}
+                      disabled={!habit.isDueToday}
+                      onChange={(e) =>
+                        setNoteDrafts((prev) => ({ ...prev, [habit.habitId]: e.target.value }))
+                      }
+                    />
+                    <button
+                      type="button"
+                      onClick={() => saveNote(habit.habitId)}
+                      disabled={loading || !habit.isDueToday}
+                    >
+                      Save Note
+                    </button>
+                  </div>
+                  {!habit.isDueToday && <p className="habit-meta">Not scheduled for today</p>}
+                </li>
+              ))}
+            </ul>
+          </section>
+        </>
+      )}
+
+      {activeTab === 'calendar' && (
+        <section className="card">
+          <h2>Monthly Calendar</h2>
+          <input
+            type="month"
+            value={selectedMonth}
+            onChange={(e) => {
+              setSelectedMonth(e.target.value);
+              setSelectedCalendarDate('');
+              setSelectedDateHabits([]);
+            }}
+          />
+          <div className="calendar-head">
+            {WEEK_DAYS.map((day) => (
+              <div key={`head-${day.value}`} className="calendar-head-cell">{day.label}</div>
+            ))}
+          </div>
+          <div className="calendar-grid">
+            {calendarCells.map((cell) =>
+              cell.empty ? (
+                <div key={cell.key} className="calendar-cell calendar-empty" />
+              ) : (
                 <button
+                  key={cell.key}
                   type="button"
-                  onClick={() => saveNote(habit.habitId)}
-                  disabled={loading || !habit.isDueToday}
+                  className={`calendar-cell calendar-${cell.status} ${
+                    selectedCalendarDate === cell.date ? 'calendar-selected' : ''
+                  }`}
+                  onClick={() => handleCalendarDayClick(cell.date)}
+                  title={`${cell.date} (${cell.completedHabits}/${cell.totalHabits})`}
                 >
-                  Save Note
+                  <span>{cell.dayNum}</span>
                 </button>
-              </div>
-              {!habit.isDueToday && <p className="habit-meta">Not scheduled for today</p>}
-            </li>
-          ))}
-        </ul>
-      </section>
+              )
+            )}
+          </div>
+          {calendarLoading && <p>Loading calendar...</p>}
+
+          {selectedCalendarDate && (
+            <div className="day-details">
+              <h3>{selectedCalendarDate}</h3>
+              {selectedDateLoading && <p>Loading habits...</p>}
+              {!selectedDateLoading && selectedDateHabits.length === 0 && (
+                <p>No scheduled habits for this day.</p>
+              )}
+              {!selectedDateLoading && selectedDateHabits.length > 0 && (
+                <ul>
+                  {selectedDateHabits.map((habit) => (
+                    <li key={`day-${habit.habitId}`}>
+                      <span>
+                        {habit.name}
+                        <span className="habit-meta"> ({formatScheduleLabel(habit)})</span>
+                      </span>
+                      <span className={habit.completed ? 'day-status done' : 'day-status missed'}>
+                        {habit.completed ? 'Done' : 'Not done'}
+                      </span>
+                      {habit.notes ? <p className="habit-meta">Note: {habit.notes}</p> : null}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </section>
+      )}
 
       {error && <p className="error">{error}</p>}
     </main>

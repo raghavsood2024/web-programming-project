@@ -98,6 +98,20 @@ button.link {
   gap: 0.5rem;
 }
 
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1rem 0;
+}
+
+.tab {
+  border: 1px solid var(--border);
+}
+
+.tab-active {
+  outline: 2px solid var(--text);
+}
+
 ul {
   list-style: none;
   padding: 0;
@@ -169,6 +183,79 @@ ul {
   display: flex;
   align-items: center;
   gap: 0.35rem;
+}
+
+.calendar-head {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.4rem;
+  margin: 0.8rem 0 0.3rem;
+}
+
+.calendar-head-cell {
+  text-align: center;
+  font-size: 0.85rem;
+  opacity: 0.8;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 0.4rem;
+}
+
+.calendar-cell {
+  min-height: 42px;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  color: var(--text);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.calendar-empty {
+  border-style: dashed;
+  opacity: 0.4;
+}
+
+.calendar-green {
+  background: #1d7a38;
+  color: #fff;
+}
+
+.calendar-red {
+  background: #b53939;
+  color: #fff;
+}
+
+.calendar-none {
+  background: var(--card-bg);
+}
+
+.calendar-selected {
+  outline: 2px solid var(--text);
+}
+
+.day-details {
+  margin-top: 1rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--border);
+}
+
+.day-status {
+  margin-left: 0.5rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.day-status.done {
+  color: #1d7a38;
+}
+
+.day-status.missed {
+  color: #b53939;
 }
 
 .error {
