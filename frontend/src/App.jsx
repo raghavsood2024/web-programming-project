@@ -82,6 +82,10 @@ export default function App() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isRegister, setIsRegister] = useState(false);
+  const [captchaId, setCaptchaId] = useState('');
+  const [captchaQuestion, setCaptchaQuestion] = useState('');
+  const [captchaAnswer, setCaptchaAnswer] = useState('');
+  const [captchaLoading, setCaptchaLoading] = useState(false);
   const [habitName, setHabitName] = useState('');
   const [scheduleType, setScheduleType] = useState('daily');
   const [selectedDays, setSelectedDays] = useState([]);
@@ -145,6 +149,18 @@ export default function App() {
     }
   }
 
+  async function loadCaptcha() {
+    setCaptchaLoading(true);
+    try {
+      const data = await api('/api/captcha');
+      setCaptchaId(data.captchaId || '');
+      setCaptchaQuestion(data.question || '');
+      setCaptchaAnswer('');
+    } finally {
+      setCaptchaLoading(false);
+    }
+  }
+
   useEffect(() => {
     if (!token) return;
     Promise.all([loadToday(), loadHabits(), loadMonth(selectedMonth)]).catch((err) => setError(err.message));
@@ -160,19 +176,34 @@ export default function App() {
     localStorage.setItem('theme', theme);
   }, [theme]);
 
+  useEffect(() => {
+    if (token) return;
+    if (!captchaId) {
+      loadCaptcha().catch((err) => setError(err.message));
+    }
+  }, [token, captchaId]);
+
   async function handleAuth(e) {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
       const endpoint = isRegister ? '/api/register' : '/api/login';
-      const data = await api(endpoint, 'POST', { email, password });
+      const data = await api(endpoint, 'POST', { email, password, captchaId, captchaAnswer });
       localStorage.setItem('token', data.token);
       setToken(data.token);
       setEmail('');
       setPassword('');
+      setCaptchaAnswer('');
+      setCaptchaId('');
+      setCaptchaQuestion('');
     } catch (err) {
       setError(err.message);
+      try {
+        await loadCaptcha();
+      } catch (captchaErr) {
+        setError(captchaErr.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -395,6 +426,20 @@ export default function App() {
             onChange={(e) => setPassword(e.target.value)}
             required
           />
+          <div className="captcha-box">
+            <p>{captchaLoading ? 'Loading captcha...' : `Captcha: ${captchaQuestion}`}</p>
+            <input
+              type="text"
+              placeholder="Enter captcha answer"
+              value={captchaAnswer}
+              onChange={(e) => setCaptchaAnswer(e.target.value)}
+              required
+              disabled={captchaLoading}
+            />
+            <button type="button" onClick={() => loadCaptcha().catch((err) => setError(err.message))}>
+              Refresh Captcha
+            </button>
+          </div>
           <button type="submit" disabled={loading}>
             {loading ? 'Please wait...' : isRegister ? 'Create Account' : 'Login'}
           </button>

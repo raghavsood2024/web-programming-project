@@ -4,6 +4,7 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const sqlite3 = require('sqlite3').verbose();
 const path = require('path');
+const crypto = require('crypto');
 require('dotenv').config();
 
 const app = express();
@@ -14,6 +15,9 @@ const db = new sqlite3.Database(dbPath);
 
 app.use(cors());
 app.use(express.json());
+
+const CAPTCHA_TTL_MS = 5 * 60 * 1000;
+const captchaStore = new Map();
 
 function run(sql, params = []) {
   return new Promise((resolve, reject) => {
@@ -182,6 +186,42 @@ function isHabitDueOnDate(habit, targetDate) {
   return true;
 }
 
+function createCaptchaChallenge() {
+  const a = Math.floor(Math.random() * 10) + 1;
+  const b = Math.floor(Math.random() * 10) + 1;
+  const answer = String(a + b);
+  const captchaId = crypto.randomBytes(16).toString('hex');
+  captchaStore.set(captchaId, { answer, expiresAt: Date.now() + CAPTCHA_TTL_MS });
+  return { captchaId, question: `${a} + ${b} = ?` };
+}
+
+function verifyCaptcha(captchaId, captchaAnswer) {
+  if (!captchaId || typeof captchaAnswer !== 'string') {
+    return { ok: false, error: 'Captcha is required' };
+  }
+  const item = captchaStore.get(captchaId);
+  if (!item) {
+    return { ok: false, error: 'Invalid captcha. Please refresh and try again' };
+  }
+  captchaStore.delete(captchaId);
+  if (Date.now() > item.expiresAt) {
+    return { ok: false, error: 'Captcha expired. Please refresh and try again' };
+  }
+  if (item.answer !== captchaAnswer.trim()) {
+    return { ok: false, error: 'Incorrect captcha answer' };
+  }
+  return { ok: true };
+}
+
+function cleanupExpiredCaptchas() {
+  const now = Date.now();
+  for (const [id, value] of captchaStore.entries()) {
+    if (value.expiresAt <= now) {
+      captchaStore.delete(id);
+    }
+  }
+}
+
 function auth(req, res, next) {
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) {
@@ -202,11 +242,20 @@ app.get('/api/health', (_req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/api/captcha', (_req, res) => {
+  cleanupExpiredCaptchas();
+  return res.json(createCaptchaChallenge());
+});
+
 app.post('/api/register', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, captchaId, captchaAnswer } = req.body;
     if (!email || !password || password.length < 6) {
       return res.status(400).json({ error: 'Valid email and password (min 6 chars) required' });
+    }
+    const captcha = verifyCaptcha(captchaId, captchaAnswer);
+    if (!captcha.ok) {
+      return res.status(400).json({ error: captcha.error });
     }
 
     const existing = await get('SELECT id FROM users WHERE email = ?', [email.toLowerCase()]);
@@ -232,9 +281,13 @@ app.post('/api/register', async (req, res) => {
 
 app.post('/api/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, captchaId, captchaAnswer } = req.body;
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
+    }
+    const captcha = verifyCaptcha(captchaId, captchaAnswer);
+    if (!captcha.ok) {
+      return res.status(400).json({ error: captcha.error });
     }
 
     const user = await get('SELECT id, email, password_hash FROM users WHERE email = ?', [
