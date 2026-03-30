@@ -70,6 +70,42 @@ ul {
   gap: 0.5rem;
 }
 
+.habit-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.habit-row label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.habit-actions {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.habit-actions button {
+  padding: 0.35rem 0.6rem;
+}
+
+.habit-note {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.habit-note input {
+  flex: 1;
+}
+
+.habit-note button {
+  padding: 0.35rem 0.6rem;
+}
+
 .error {
   color: #b00020;
 }

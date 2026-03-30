@@ -77,10 +77,17 @@ async function initDb() {
       habit_id INTEGER NOT NULL,
       entry_date TEXT NOT NULL,
       completed INTEGER NOT NULL DEFAULT 0,
+      notes TEXT DEFAULT '',
       UNIQUE(habit_id, entry_date),
       FOREIGN KEY(habit_id) REFERENCES habits(id)
     )
   `);
+
+  const habitEntryColumns = await all('PRAGMA table_info(habit_entries)');
+  const hasNotes = habitEntryColumns.some((col) => col.name === 'notes');
+  if (!hasNotes) {
+    await run("ALTER TABLE habit_entries ADD COLUMN notes TEXT DEFAULT ''");
+  }
 }
 
 function auth(req, res, next) {
@@ -189,12 +196,69 @@ app.post('/api/habits', auth, async (req, res) => {
   }
 });
 
+app.put('/api/habits/:id', auth, async (req, res) => {
+  try {
+    const habitId = Number(req.params.id);
+    const { name } = req.body;
+
+    if (!Number.isInteger(habitId) || habitId <= 0) {
+      return res.status(400).json({ error: 'Invalid habit id' });
+    }
+    if (!name || !name.trim()) {
+      return res.status(400).json({ error: 'Habit name required' });
+    }
+
+    const habit = await get('SELECT id FROM habits WHERE id = ? AND user_id = ?', [
+      habitId,
+      req.user.userId,
+    ]);
+    if (!habit) {
+      return res.status(404).json({ error: 'Habit not found' });
+    }
+
+    const nextName = name.trim();
+    await run('UPDATE habits SET name = ? WHERE id = ? AND user_id = ?', [
+      nextName,
+      habitId,
+      req.user.userId,
+    ]);
+
+    return res.json({ id: habitId, name: nextName });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+app.delete('/api/habits/:id', auth, async (req, res) => {
+  try {
+    const habitId = Number(req.params.id);
+    if (!Number.isInteger(habitId) || habitId <= 0) {
+      return res.status(400).json({ error: 'Invalid habit id' });
+    }
+
+    const habit = await get('SELECT id FROM habits WHERE id = ? AND user_id = ?', [
+      habitId,
+      req.user.userId,
+    ]);
+    if (!habit) {
+      return res.status(404).json({ error: 'Habit not found' });
+    }
+
+    await run('DELETE FROM habit_entries WHERE habit_id = ?', [habitId]);
+    await run('DELETE FROM habits WHERE id = ? AND user_id = ?', [habitId, req.user.userId]);
+
+    return res.json({ ok: true });
+  } catch (err) {
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
 app.get('/api/entries/today', auth, async (req, res) => {
   try {
     const today = new Date().toISOString().slice(0, 10);
     const rows = await all(
       `
-      SELECT h.id AS habitId, h.name, COALESCE(e.completed, 0) AS completed
+      SELECT h.id AS habitId, h.name, COALESCE(e.completed, 0) AS completed, COALESCE(e.notes, '') AS notes
       FROM habits h
       LEFT JOIN habit_entries e
         ON e.habit_id = h.id
@@ -213,9 +277,13 @@ app.get('/api/entries/today', auth, async (req, res) => {
 
 app.post('/api/entries/today', auth, async (req, res) => {
   try {
-    const { habitId, completed } = req.body;
+    const { habitId, completed, notes } = req.body;
     if (!habitId || typeof completed !== 'boolean') {
       return res.status(400).json({ error: 'habitId and completed(boolean) are required' });
+    }
+    const hasNotes = typeof notes === 'string';
+    if (hasNotes && notes.length > 500) {
+      return res.status(400).json({ error: 'Notes must be 500 characters or fewer' });
     }
 
     const habit = await get('SELECT id FROM habits WHERE id = ? AND user_id = ?', [
@@ -227,15 +295,27 @@ app.post('/api/entries/today', auth, async (req, res) => {
     }
 
     const today = new Date().toISOString().slice(0, 10);
-    await run(
-      `
-      INSERT INTO habit_entries (habit_id, entry_date, completed)
-      VALUES (?, ?, ?)
-      ON CONFLICT(habit_id, entry_date)
-      DO UPDATE SET completed = excluded.completed
-      `,
-      [habitId, today, completed ? 1 : 0]
-    );
+    if (hasNotes) {
+      await run(
+        `
+        INSERT INTO habit_entries (habit_id, entry_date, completed, notes)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(habit_id, entry_date)
+        DO UPDATE SET completed = excluded.completed, notes = excluded.notes
+        `,
+        [habitId, today, completed ? 1 : 0, notes]
+      );
+    } else {
+      await run(
+        `
+        INSERT INTO habit_entries (habit_id, entry_date, completed)
+        VALUES (?, ?, ?)
+        ON CONFLICT(habit_id, entry_date)
+        DO UPDATE SET completed = excluded.completed
+        `,
+        [habitId, today, completed ? 1 : 0]
+      );
+    }
 
     return res.json({ ok: true });
   } catch (err) {
