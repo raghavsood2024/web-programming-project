@@ -1,6 +1,15 @@
 import React, { useEffect, useState } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
+const WEEK_DAYS = [
+  { value: 0, label: 'Sun' },
+  { value: 1, label: 'Mon' },
+  { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' },
+  { value: 4, label: 'Thu' },
+  { value: 5, label: 'Fri' },
+  { value: 6, label: 'Sat' },
+];
 
 function api(path, method = 'GET', body, token) {
   return fetch(`${API_BASE}${path}`, {
@@ -24,9 +33,47 @@ function normalizeTodayResponse(data) {
       ? data.habits.map((habit) => ({
           ...habit,
           notes: typeof habit?.notes === 'string' ? habit.notes : '',
+          scheduleType: String(habit?.scheduleType || habit?.schedule_type || 'daily').toLowerCase(),
+          daysOfWeek:
+            typeof habit?.daysOfWeek === 'string'
+              ? habit.daysOfWeek
+              : typeof habit?.days_of_week === 'string'
+                ? habit.days_of_week
+                : '',
         }))
       : [],
   };
+}
+
+function normalizeHabitsResponse(data) {
+  return Array.isArray(data)
+    ? data.map((habit) => ({
+        habitId: habit.id,
+        name: habit.name,
+        scheduleType: String(habit.scheduleType || habit.schedule_type || 'daily').toLowerCase(),
+        daysOfWeek:
+          typeof habit.daysOfWeek === 'string'
+            ? habit.daysOfWeek
+            : typeof habit.days_of_week === 'string'
+              ? habit.days_of_week
+              : '',
+      }))
+    : [];
+}
+
+function formatScheduleLabel(habit) {
+  if (habit.scheduleType === 'weekly') return 'Weekly';
+  if (habit.scheduleType === 'specific_days') {
+    const days = (habit.daysOfWeek || '')
+      .split(',')
+      .filter((v) => v !== '')
+      .map((v) => Number(v))
+      .filter((v) => Number.isInteger(v) && v >= 0 && v <= 6)
+      .map((v) => WEEK_DAYS.find((d) => d.value === v)?.label)
+      .filter(Boolean);
+    return days.length > 0 ? `Specific: ${days.join(', ')}` : 'Specific days';
+  }
+  return 'Daily';
 }
 
 export default function App() {
@@ -36,11 +83,16 @@ export default function App() {
   const [password, setPassword] = useState('');
   const [isRegister, setIsRegister] = useState(false);
   const [habitName, setHabitName] = useState('');
+  const [scheduleType, setScheduleType] = useState('daily');
+  const [selectedDays, setSelectedDays] = useState([]);
   const [today, setToday] = useState({ date: '', habits: [] });
+  const [allHabits, setAllHabits] = useState([]);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [editHabitId, setEditHabitId] = useState(null);
   const [editHabitName, setEditHabitName] = useState('');
+  const [editScheduleType, setEditScheduleType] = useState('daily');
+  const [editSelectedDays, setEditSelectedDays] = useState([]);
   const [noteDrafts, setNoteDrafts] = useState({});
 
   function applyTodayData(data) {
@@ -61,9 +113,14 @@ export default function App() {
     applyTodayData(data);
   }
 
+  async function loadHabits(authToken = token) {
+    const data = await api('/api/habits', 'GET', undefined, authToken);
+    setAllHabits(normalizeHabitsResponse(data));
+  }
+
   useEffect(() => {
     if (!token) return;
-    loadToday().catch((err) => setError(err.message));
+    Promise.all([loadToday(), loadHabits()]).catch((err) => setError(err.message));
   }, [token]);
 
   useEffect(() => {
@@ -92,12 +149,23 @@ export default function App() {
   async function addHabit(e) {
     e.preventDefault();
     if (!habitName.trim()) return;
+    if (scheduleType === 'specific_days' && selectedDays.length === 0) {
+      setError('Select at least one day for specific-days schedule');
+      return;
+    }
     setError('');
     setLoading(true);
     try {
-      await api('/api/habits', 'POST', { name: habitName }, token);
+      await api(
+        '/api/habits',
+        'POST',
+        { name: habitName, scheduleType, daysOfWeek: scheduleType === 'specific_days' ? selectedDays : [] },
+        token
+      );
       setHabitName('');
-      await loadToday();
+      setScheduleType('daily');
+      setSelectedDays([]);
+      await Promise.all([loadToday(), loadHabits()]);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -142,25 +210,43 @@ export default function App() {
   function startEdit(habit) {
     setEditHabitId(habit.habitId);
     setEditHabitName(habit.name);
+    setEditScheduleType(habit.scheduleType || 'daily');
+    setEditSelectedDays(
+      (habit.daysOfWeek || '')
+        .split(',')
+        .filter((v) => v !== '')
+        .map((v) => Number(v))
+        .filter((v) => Number.isInteger(v) && v >= 0 && v <= 6)
+    );
   }
 
   function cancelEdit() {
     setEditHabitId(null);
     setEditHabitName('');
+    setEditScheduleType('daily');
+    setEditSelectedDays([]);
   }
 
   async function saveEdit(habitId) {
     if (!editHabitName.trim()) return;
+    if (editScheduleType === 'specific_days' && editSelectedDays.length === 0) {
+      setError('Select at least one day for specific-days schedule');
+      return;
+    }
     setError('');
     setLoading(true);
     try {
-      await api(`/api/habits/${habitId}`, 'PUT', { name: editHabitName }, token);
-      setToday((prev) => ({
-        ...prev,
-        habits: prev.habits.map((h) =>
-          h.habitId === habitId ? { ...h, name: editHabitName.trim() } : h
-        ),
-      }));
+      await api(
+        `/api/habits/${habitId}`,
+        'PUT',
+        {
+          name: editHabitName,
+          scheduleType: editScheduleType,
+          daysOfWeek: editScheduleType === 'specific_days' ? editSelectedDays : [],
+        },
+        token
+      );
+      await Promise.all([loadToday(), loadHabits()]);
       cancelEdit();
     } catch (err) {
       setError(err.message);
@@ -178,6 +264,7 @@ export default function App() {
         ...prev,
         habits: prev.habits.filter((h) => h.habitId !== habitId),
       }));
+      setAllHabits((prev) => prev.filter((h) => h.habitId !== habitId));
       if (editHabitId === habitId) {
         cancelEdit();
       }
@@ -192,12 +279,36 @@ export default function App() {
     localStorage.removeItem('token');
     setToken('');
     setToday({ date: '', habits: [] });
+    setAllHabits([]);
     setNoteDrafts({});
   }
 
   function toggleTheme() {
     setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
   }
+
+  function toggleSelectedDay(dayValue) {
+    setSelectedDays((prev) =>
+      prev.includes(dayValue) ? prev.filter((d) => d !== dayValue) : [...prev, dayValue].sort((a, b) => a - b)
+    );
+  }
+
+  function toggleEditSelectedDay(dayValue) {
+    setEditSelectedDays((prev) =>
+      prev.includes(dayValue) ? prev.filter((d) => d !== dayValue) : [...prev, dayValue].sort((a, b) => a - b)
+    );
+  }
+
+  const todayByHabitId = new Map(today.habits.map((h) => [h.habitId, h]));
+  const habitsForView = allHabits.map((habit) => {
+    const todayData = todayByHabitId.get(habit.habitId);
+    return {
+      ...habit,
+      isDueToday: Boolean(todayData),
+      completed: todayData ? todayData.completed : 0,
+      notes: todayData ? todayData.notes : '',
+    };
+  });
 
   if (!token) {
     return (
@@ -256,32 +367,78 @@ export default function App() {
           value={habitName}
           onChange={(e) => setHabitName(e.target.value)}
         />
+        <select value={scheduleType} onChange={(e) => setScheduleType(e.target.value)}>
+          <option value="daily">Daily</option>
+          <option value="weekly">Weekly</option>
+          <option value="specific_days">Specific days</option>
+        </select>
+        {scheduleType === 'specific_days' && (
+          <div className="day-picker">
+            {WEEK_DAYS.map((day) => (
+              <label key={day.value}>
+                <input
+                  type="checkbox"
+                  checked={selectedDays.includes(day.value)}
+                  onChange={() => toggleSelectedDay(day.value)}
+                />
+                {day.label}
+              </label>
+            ))}
+          </div>
+        )}
         <button type="submit" disabled={loading}>Add</button>
       </form>
 
       <section className="card">
-        <h2>Today ({today.date || '-'})</h2>
-        {today.habits.length === 0 && <p>No habits yet. Add one above.</p>}
+        <h2>Habits (Today: {today.date || '-'})</h2>
+        {habitsForView.length === 0 && <p>No habits yet. Add one above.</p>}
         <ul>
-          {today.habits.map((habit) => (
+          {habitsForView.map((habit) => (
             <li key={habit.habitId}>
               <div className="habit-row">
-                <label>
+                <label className="habit-check">
                   <input
                     type="checkbox"
                     checked={Boolean(habit.completed)}
+                    disabled={!habit.isDueToday}
                     onChange={(e) => toggleHabit(habit.habitId, e.target.checked)}
                   />
-                  {editHabitId === habit.habitId ? (
-                    <input
-                      type="text"
-                      value={editHabitName}
-                      onChange={(e) => setEditHabitName(e.target.value)}
-                    />
-                  ) : (
-                    <span>{habit.name}</span>
-                  )}
                 </label>
+                <div className="habit-main">
+                  {editHabitId === habit.habitId ? (
+                    <div className="edit-panel">
+                      <input
+                        type="text"
+                        value={editHabitName}
+                        onChange={(e) => setEditHabitName(e.target.value)}
+                      />
+                      <select value={editScheduleType} onChange={(e) => setEditScheduleType(e.target.value)}>
+                        <option value="daily">Daily</option>
+                        <option value="weekly">Weekly</option>
+                        <option value="specific_days">Specific days</option>
+                      </select>
+                      {editScheduleType === 'specific_days' && (
+                        <div className="day-picker">
+                          {WEEK_DAYS.map((day) => (
+                            <label key={day.value}>
+                              <input
+                                type="checkbox"
+                                checked={editSelectedDays.includes(day.value)}
+                                onChange={() => toggleEditSelectedDay(day.value)}
+                              />
+                              {day.label}
+                            </label>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <span>
+                      {habit.name}
+                      <span className="habit-meta"> ({formatScheduleLabel(habit)})</span>
+                    </span>
+                  )}
+                </div>
                 <div className="habit-actions">
                   {editHabitId === habit.habitId ? (
                     <>
@@ -307,16 +464,22 @@ export default function App() {
               <div className="habit-note">
                 <input
                   type="text"
-                  placeholder="Add note about this activity"
+                  placeholder={habit.isDueToday ? 'Add note about this activity' : 'Not scheduled today'}
                   value={noteDrafts[habit.habitId] || ''}
+                  disabled={!habit.isDueToday}
                   onChange={(e) =>
                     setNoteDrafts((prev) => ({ ...prev, [habit.habitId]: e.target.value }))
                   }
                 />
-                <button type="button" onClick={() => saveNote(habit.habitId)} disabled={loading}>
+                <button
+                  type="button"
+                  onClick={() => saveNote(habit.habitId)}
+                  disabled={loading || !habit.isDueToday}
+                >
                   Save Note
                 </button>
               </div>
+              {!habit.isDueToday && <p className="habit-meta">Not scheduled for today</p>}
             </li>
           ))}
         </ul>

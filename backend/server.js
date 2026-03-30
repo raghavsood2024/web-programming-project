@@ -66,6 +66,8 @@ async function initDb() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       user_id INTEGER NOT NULL,
       name TEXT NOT NULL,
+      schedule_type TEXT NOT NULL DEFAULT 'daily',
+      days_of_week TEXT DEFAULT '',
       created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(user_id) REFERENCES users(id)
     )
@@ -88,6 +90,39 @@ async function initDb() {
   if (!hasNotes) {
     await run("ALTER TABLE habit_entries ADD COLUMN notes TEXT DEFAULT ''");
   }
+
+  const habitColumns = await all('PRAGMA table_info(habits)');
+  const hasScheduleType = habitColumns.some((col) => col.name === 'schedule_type');
+  if (!hasScheduleType) {
+    await run("ALTER TABLE habits ADD COLUMN schedule_type TEXT NOT NULL DEFAULT 'daily'");
+  }
+  const hasDaysOfWeek = habitColumns.some((col) => col.name === 'days_of_week');
+  if (!hasDaysOfWeek) {
+    await run("ALTER TABLE habits ADD COLUMN days_of_week TEXT DEFAULT ''");
+  }
+}
+
+function parseScheduleInput(scheduleType, daysOfWeek) {
+  const allowed = ['daily', 'weekly', 'specific_days'];
+  const nextScheduleType = scheduleType || 'daily';
+  if (!allowed.includes(nextScheduleType)) {
+    return { error: 'scheduleType must be daily, weekly, or specific_days' };
+  }
+
+  if (nextScheduleType === 'specific_days') {
+    if (!Array.isArray(daysOfWeek) || daysOfWeek.length === 0) {
+      return { error: 'daysOfWeek is required for specific_days schedule' };
+    }
+
+    const parsed = [...new Set(daysOfWeek.map((d) => Number(d)))].sort((a, b) => a - b);
+    const invalid = parsed.some((d) => !Number.isInteger(d) || d < 0 || d > 6);
+    if (invalid) {
+      return { error: 'daysOfWeek must contain integers 0-6' };
+    }
+    return { scheduleType: nextScheduleType, daysOfWeekCsv: parsed.join(',') };
+  }
+
+  return { scheduleType: nextScheduleType, daysOfWeekCsv: '' };
 }
 
 function auth(req, res, next) {
@@ -169,9 +204,10 @@ app.post('/api/login', async (req, res) => {
 
 app.get('/api/habits', auth, async (req, res) => {
   try {
-    const habits = await all('SELECT id, name FROM habits WHERE user_id = ? ORDER BY id DESC', [
-      req.user.userId,
-    ]);
+    const habits = await all(
+      'SELECT id, name, schedule_type AS scheduleType, days_of_week AS daysOfWeek FROM habits WHERE user_id = ? ORDER BY id DESC',
+      [req.user.userId]
+    );
     return res.json(habits);
   } catch (err) {
     return res.status(500).json({ error: 'Server error' });
@@ -180,17 +216,32 @@ app.get('/api/habits', auth, async (req, res) => {
 
 app.post('/api/habits', auth, async (req, res) => {
   try {
-    const { name } = req.body;
+    const { name, scheduleType, daysOfWeek } = req.body;
     if (!name || !name.trim()) {
       return res.status(400).json({ error: 'Habit name required' });
     }
 
-    const result = await run('INSERT INTO habits (user_id, name) VALUES (?, ?)', [
-      req.user.userId,
-      name.trim(),
-    ]);
+    const schedule = parseScheduleInput(scheduleType, daysOfWeek);
+    if (schedule.error) {
+      return res.status(400).json({ error: schedule.error });
+    }
 
-    return res.status(201).json({ id: result.lastID, name: name.trim() });
+    const result = await run(
+      'INSERT INTO habits (user_id, name, schedule_type, days_of_week) VALUES (?, ?, ?, ?)',
+      [
+        req.user.userId,
+        name.trim(),
+        schedule.scheduleType,
+        schedule.daysOfWeekCsv,
+      ]
+    );
+
+    return res.status(201).json({
+      id: result.lastID,
+      name: name.trim(),
+      scheduleType: schedule.scheduleType,
+      daysOfWeek: schedule.daysOfWeekCsv,
+    });
   } catch (err) {
     return res.status(500).json({ error: 'Server error' });
   }
@@ -199,7 +250,7 @@ app.post('/api/habits', auth, async (req, res) => {
 app.put('/api/habits/:id', auth, async (req, res) => {
   try {
     const habitId = Number(req.params.id);
-    const { name } = req.body;
+    const { name, scheduleType, daysOfWeek } = req.body;
 
     if (!Number.isInteger(habitId) || habitId <= 0) {
       return res.status(400).json({ error: 'Invalid habit id' });
@@ -208,22 +259,34 @@ app.put('/api/habits/:id', auth, async (req, res) => {
       return res.status(400).json({ error: 'Habit name required' });
     }
 
-    const habit = await get('SELECT id FROM habits WHERE id = ? AND user_id = ?', [
-      habitId,
-      req.user.userId,
-    ]);
+    const habit = await get(
+      'SELECT id, schedule_type AS scheduleType, days_of_week AS daysOfWeek FROM habits WHERE id = ? AND user_id = ?',
+      [habitId, req.user.userId]
+    );
     if (!habit) {
       return res.status(404).json({ error: 'Habit not found' });
     }
 
-    const nextName = name.trim();
-    await run('UPDATE habits SET name = ? WHERE id = ? AND user_id = ?', [
-      nextName,
-      habitId,
-      req.user.userId,
-    ]);
+    const schedule = parseScheduleInput(
+      scheduleType || habit.scheduleType,
+      daysOfWeek !== undefined ? daysOfWeek : habit.daysOfWeek ? habit.daysOfWeek.split(',') : []
+    );
+    if (schedule.error) {
+      return res.status(400).json({ error: schedule.error });
+    }
 
-    return res.json({ id: habitId, name: nextName });
+    const nextName = name.trim();
+    await run(
+      'UPDATE habits SET name = ?, schedule_type = ?, days_of_week = ? WHERE id = ? AND user_id = ?',
+      [nextName, schedule.scheduleType, schedule.daysOfWeekCsv, habitId, req.user.userId]
+    );
+
+    return res.json({
+      id: habitId,
+      name: nextName,
+      scheduleType: schedule.scheduleType,
+      daysOfWeek: schedule.daysOfWeekCsv,
+    });
   } catch (err) {
     return res.status(500).json({ error: 'Server error' });
   }
@@ -255,21 +318,38 @@ app.delete('/api/habits/:id', auth, async (req, res) => {
 
 app.get('/api/entries/today', auth, async (req, res) => {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = new Date();
+    const todayIso = today.toISOString().slice(0, 10);
+    const dayOfWeek = today.getDay();
+
     const rows = await all(
       `
-      SELECT h.id AS habitId, h.name, COALESCE(e.completed, 0) AS completed, COALESCE(e.notes, '') AS notes
+      SELECT
+        h.id AS habitId,
+        h.name,
+        h.schedule_type AS scheduleType,
+        h.days_of_week AS daysOfWeek,
+        COALESCE(e.completed, 0) AS completed,
+        COALESCE(e.notes, '') AS notes
       FROM habits h
       LEFT JOIN habit_entries e
         ON e.habit_id = h.id
        AND e.entry_date = ?
       WHERE h.user_id = ?
+        AND (
+          h.schedule_type = 'daily'
+          OR (h.schedule_type = 'weekly' AND CAST(strftime('%w', h.created_at) AS INTEGER) = ?)
+          OR (
+            h.schedule_type = 'specific_days'
+            AND instr(',' || h.days_of_week || ',', ',' || ? || ',') > 0
+          )
+        )
       ORDER BY h.id DESC
       `,
-      [today, req.user.userId]
+      [todayIso, req.user.userId, dayOfWeek, String(dayOfWeek)]
     );
 
-    return res.json({ date: today, habits: rows });
+    return res.json({ date: todayIso, habits: rows });
   } catch (err) {
     return res.status(500).json({ error: 'Server error' });
   }

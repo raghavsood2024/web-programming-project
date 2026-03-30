@@ -61,6 +61,7 @@ form {
 }
 
 input,
+select,
 button {
   padding: 0.6rem;
   border-radius: 6px;
@@ -69,6 +70,10 @@ button {
 }
 
 input {
+  background: var(--input-bg);
+}
+
+select {
   background: var(--input-bg);
 }
 
@@ -104,14 +109,31 @@ ul {
 .habit-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 0.75rem;
+}
+
+.habit-check {
+  flex-shrink: 0;
+}
+
+.habit-main {
+  flex: 1;
+}
+
+.edit-panel {
+  display: grid;
+  gap: 0.5rem;
 }
 
 .habit-row label {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.habit-meta {
+  opacity: 0.75;
+  font-size: 0.9em;
 }
 
 .habit-actions {
@@ -135,6 +157,18 @@ ul {
 
 .habit-note button {
   padding: 0.35rem 0.6rem;
+}
+
+.day-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 0.75rem;
+}
+
+.day-picker label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
 }
 
 .error {
