@@ -87,7 +87,7 @@ export default function App() {
   const [selectedDays, setSelectedDays] = useState([]);
   const [today, setToday] = useState({ date: '', habits: [] });
   const [allHabits, setAllHabits] = useState([]);
-  const [activeTab, setActiveTab] = useState('habits');
+  const [activeTab, setActiveTab] = useState('today');
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
   const [calendarDays, setCalendarDays] = useState([]);
   const [calendarLoading, setCalendarLoading] = useState(false);
@@ -422,10 +422,17 @@ export default function App() {
       <div className="tabs">
         <button
           type="button"
-          className={activeTab === 'habits' ? 'tab tab-active' : 'tab'}
-          onClick={() => setActiveTab('habits')}
+          className={activeTab === 'add' ? 'tab tab-active' : 'tab'}
+          onClick={() => setActiveTab('add')}
         >
-          Habits
+          Add Habit
+        </button>
+        <button
+          type="button"
+          className={activeTab === 'today' ? 'tab tab-active' : 'tab'}
+          onClick={() => setActiveTab('today')}
+        >
+          Today
         </button>
         <button
           type="button"
@@ -436,134 +443,134 @@ export default function App() {
         </button>
       </div>
 
-      {activeTab === 'habits' && (
-        <>
-          <form onSubmit={addHabit} className="card">
-            <h2>Add Habit</h2>
-            <input
-              type="text"
-              placeholder="e.g. Drink 2L water"
-              value={habitName}
-              onChange={(e) => setHabitName(e.target.value)}
-            />
-            <select value={scheduleType} onChange={(e) => setScheduleType(e.target.value)}>
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="specific_days">Specific days</option>
-            </select>
-            {scheduleType === 'specific_days' && (
-              <div className="day-picker">
-                {WEEK_DAYS.map((day) => (
-                  <label key={day.value}>
+      {activeTab === 'add' && (
+        <form onSubmit={addHabit} className="card">
+          <h2>Add Habit</h2>
+          <input
+            type="text"
+            placeholder="e.g. Drink 2L water"
+            value={habitName}
+            onChange={(e) => setHabitName(e.target.value)}
+          />
+          <select value={scheduleType} onChange={(e) => setScheduleType(e.target.value)}>
+            <option value="daily">Daily</option>
+            <option value="weekly">Weekly</option>
+            <option value="specific_days">Specific days</option>
+          </select>
+          {scheduleType === 'specific_days' && (
+            <div className="day-picker">
+              {WEEK_DAYS.map((day) => (
+                <label key={day.value}>
+                  <input
+                    type="checkbox"
+                    checked={selectedDays.includes(day.value)}
+                    onChange={() => toggleSelectedDay(day.value)}
+                  />
+                  {day.label}
+                </label>
+              ))}
+            </div>
+          )}
+          <button type="submit" disabled={loading}>Add</button>
+        </form>
+      )}
+
+      {activeTab === 'today' && (
+        <section className="card">
+          <h2>Habits (Today: {today.date || '-'})</h2>
+          {habitsForView.length === 0 && <p>No habits yet. Add one above.</p>}
+          <ul>
+            {habitsForView.map((habit) => (
+              <li key={habit.habitId}>
+                <div className="habit-row">
+                  <label className="habit-check">
                     <input
                       type="checkbox"
-                      checked={selectedDays.includes(day.value)}
-                      onChange={() => toggleSelectedDay(day.value)}
-                    />
-                    {day.label}
-                  </label>
-                ))}
-              </div>
-            )}
-            <button type="submit" disabled={loading}>Add</button>
-          </form>
-
-          <section className="card">
-            <h2>Habits (Today: {today.date || '-'})</h2>
-            {habitsForView.length === 0 && <p>No habits yet. Add one above.</p>}
-            <ul>
-              {habitsForView.map((habit) => (
-                <li key={habit.habitId}>
-                  <div className="habit-row">
-                    <label className="habit-check">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(habit.completed)}
-                        disabled={!habit.isDueToday}
-                        onChange={(e) => toggleHabit(habit.habitId, e.target.checked)}
-                      />
-                    </label>
-                    <div className="habit-main">
-                      {editHabitId === habit.habitId ? (
-                        <div className="edit-panel">
-                          <input
-                            type="text"
-                            value={editHabitName}
-                            onChange={(e) => setEditHabitName(e.target.value)}
-                          />
-                          <select value={editScheduleType} onChange={(e) => setEditScheduleType(e.target.value)}>
-                            <option value="daily">Daily</option>
-                            <option value="weekly">Weekly</option>
-                            <option value="specific_days">Specific days</option>
-                          </select>
-                          {editScheduleType === 'specific_days' && (
-                            <div className="day-picker">
-                              {WEEK_DAYS.map((day) => (
-                                <label key={day.value}>
-                                  <input
-                                    type="checkbox"
-                                    checked={editSelectedDays.includes(day.value)}
-                                    onChange={() => toggleEditSelectedDay(day.value)}
-                                  />
-                                  {day.label}
-                                </label>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <span>
-                          {habit.name}
-                          <span className="habit-meta"> ({formatScheduleLabel(habit)})</span>
-                        </span>
-                      )}
-                    </div>
-                    <div className="habit-actions">
-                      {editHabitId === habit.habitId ? (
-                        <>
-                          <button type="button" onClick={() => saveEdit(habit.habitId)} disabled={loading}>
-                            Save
-                          </button>
-                          <button type="button" onClick={cancelEdit} disabled={loading}>
-                            Cancel
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button type="button" onClick={() => startEdit(habit)} disabled={loading}>
-                            Edit
-                          </button>
-                          <button type="button" onClick={() => deleteHabit(habit.habitId)} disabled={loading}>
-                            Delete
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </div>
-                  <div className="habit-note">
-                    <input
-                      type="text"
-                      placeholder={habit.isDueToday ? 'Add note about this activity' : 'Not scheduled today'}
-                      value={noteDrafts[habit.habitId] || ''}
+                      checked={Boolean(habit.completed)}
                       disabled={!habit.isDueToday}
-                      onChange={(e) =>
-                        setNoteDrafts((prev) => ({ ...prev, [habit.habitId]: e.target.value }))
-                      }
+                      onChange={(e) => toggleHabit(habit.habitId, e.target.checked)}
                     />
-                    <button
-                      type="button"
-                      onClick={() => saveNote(habit.habitId)}
-                      disabled={loading || !habit.isDueToday}
-                    >
-                      Save Note
-                    </button>
+                  </label>
+                  <div className="habit-main">
+                    {editHabitId === habit.habitId ? (
+                      <div className="edit-panel">
+                        <input
+                          type="text"
+                          value={editHabitName}
+                          onChange={(e) => setEditHabitName(e.target.value)}
+                        />
+                        <select value={editScheduleType} onChange={(e) => setEditScheduleType(e.target.value)}>
+                          <option value="daily">Daily</option>
+                          <option value="weekly">Weekly</option>
+                          <option value="specific_days">Specific days</option>
+                        </select>
+                        {editScheduleType === 'specific_days' && (
+                          <div className="day-picker">
+                            {WEEK_DAYS.map((day) => (
+                              <label key={day.value}>
+                                <input
+                                  type="checkbox"
+                                  checked={editSelectedDays.includes(day.value)}
+                                  onChange={() => toggleEditSelectedDay(day.value)}
+                                />
+                                {day.label}
+                              </label>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <span>
+                        {habit.name}
+                        <span className="habit-meta"> ({formatScheduleLabel(habit)})</span>
+                      </span>
+                    )}
                   </div>
-                  {!habit.isDueToday && <p className="habit-meta">Not scheduled for today</p>}
-                </li>
-              ))}
-            </ul>
-          </section>
-        </>
+                  <div className="habit-actions">
+                    {editHabitId === habit.habitId ? (
+                      <>
+                        <button type="button" onClick={() => saveEdit(habit.habitId)} disabled={loading}>
+                          Save
+                        </button>
+                        <button type="button" onClick={cancelEdit} disabled={loading}>
+                          Cancel
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button type="button" onClick={() => startEdit(habit)} disabled={loading}>
+                          Edit
+                        </button>
+                        <button type="button" onClick={() => deleteHabit(habit.habitId)} disabled={loading}>
+                          Delete
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+                <div className="habit-note">
+                  <input
+                    type="text"
+                    placeholder={habit.isDueToday ? 'Add note about this activity' : 'Not scheduled today'}
+                    value={noteDrafts[habit.habitId] || ''}
+                    disabled={!habit.isDueToday}
+                    onChange={(e) =>
+                      setNoteDrafts((prev) => ({ ...prev, [habit.habitId]: e.target.value }))
+                    }
+                  />
+                  <button
+                    type="button"
+                    onClick={() => saveNote(habit.habitId)}
+                    disabled={loading || !habit.isDueToday}
+                  >
+                    Save Note
+                  </button>
+                </div>
+                {!habit.isDueToday && <p className="habit-meta">Not scheduled for today</p>}
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {activeTab === 'calendar' && (
