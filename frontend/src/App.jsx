@@ -31,6 +31,7 @@ function normalizeTodayResponse(data) {
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
+  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isRegister, setIsRegister] = useState(false);
@@ -64,6 +65,11 @@ export default function App() {
     if (!token) return;
     loadToday().catch((err) => setError(err.message));
   }, [token]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
   async function handleAuth(e) {
     e.preventDefault();
@@ -189,10 +195,19 @@ export default function App() {
     setNoteDrafts({});
   }
 
+  function toggleTheme() {
+    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
+  }
+
   if (!token) {
     return (
       <main className="container">
-        <h1>Habit Tracker</h1>
+        <header className="header">
+          <h1>Habit Tracker</h1>
+          <button type="button" onClick={toggleTheme}>
+            {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
+          </button>
+        </header>
         <form onSubmit={handleAuth} className="card">
           <h2>{isRegister ? 'Register' : 'Login'}</h2>
           <input
@@ -225,7 +240,12 @@ export default function App() {
     <main className="container">
       <header className="header">
         <h1>Habit Tracker</h1>
-        <button onClick={logout}>Logout</button>
+        <div className="header-actions">
+          <button type="button" onClick={toggleTheme}>
+            {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
+          </button>
+          <button type="button" onClick={logout}>Logout</button>
+        </div>
       </header>
 
       <form onSubmit={addHabit} className="card">
