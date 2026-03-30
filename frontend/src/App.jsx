@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
 
@@ -17,6 +17,13 @@ function api(path, method = 'GET', body, token) {
   });
 }
 
+function normalizeTodayResponse(data) {
+  return {
+    date: typeof data?.date === 'string' ? data.date : '',
+    habits: Array.isArray(data?.habits) ? data.habits : [],
+  };
+}
+
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
   const [email, setEmail] = useState('');
@@ -29,7 +36,7 @@ export default function App() {
 
   async function loadToday(authToken = token) {
     const data = await api('/api/entries/today', 'GET', undefined, authToken);
-    setToday(data);
+    setToday(normalizeTodayResponse(data));
   }
 
   useEffect(() => {
