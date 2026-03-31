@@ -369,55 +369,88 @@ export default function App() {
 
   if (!token) {
     return (
-      <main className="container">
-        <header className="header">
-          <h1>TrackIt</h1>
-          <button type="button" onClick={() => setTheme((p) => (p === 'light' ? 'dark' : 'light'))}>
-            {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
+      <main className="auth-shell">
+        <header className="auth-header">
+          <div className="brand">
+            <div className="brand-mark" aria-hidden="true"><span className="brand-mark-check"><span /></span></div>
+            <div className="brand-text">
+              <span>TrackIt</span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            className="theme-toggle"
+            aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}
+            onClick={() => setTheme((p) => (p === 'light' ? 'dark' : 'light'))}
+          >
+            <span className={`theme-toggle-icon theme-toggle-icon-${theme}`} aria-hidden="true" />
+            <span className={`theme-toggle-knob theme-toggle-knob-${theme}`} />
           </button>
         </header>
 
-        <form onSubmit={submitAuth} className="card">
-          <h2>{isRegister ? 'Register' : 'Login'}</h2>
-          <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
-          <input
-            type="password"
-            placeholder="Password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-          />
+        <section className="auth-stage">
+          <form onSubmit={submitAuth} className="auth-card">
+            <div className="auth-badge" aria-hidden="true"><span className="auth-badge-check"><span /></span></div>
+            <h1>{isRegister ? 'Create Account' : 'Welcome Back Champ!'}</h1>
+            <p className="auth-subtitle">
+              {isRegister ? 'Start tracking habits with a calm daily workflow.' : 'Track your habits and build consistency.'}
+            </p>
 
-          <div className="captcha-box">
-            <p>{captchaLoading ? 'Loading captcha...' : `Captcha: ${captchaQuestion}`}</p>
-            <input
-              type="text"
-              placeholder="Enter captcha answer"
-              value={captchaAnswer}
-              onChange={(e) => setCaptchaAnswer(e.target.value)}
-              required
-              disabled={captchaLoading}
-            />
-            <button type="button" onClick={() => loadCaptcha().catch((err) => setError(err.message))}>
-              Refresh Captcha
+            <label className="auth-field">
+              <span className="auth-field-icon" aria-hidden="true">@</span>
+              <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+            </label>
+
+            <label className="auth-field">
+              
+              <input
+                type="password"
+                placeholder="Password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                required
+              />
+            </label>
+
+            <div className="captcha-panel">
+              <p className="captcha-label">Verification</p>
+              <div className="captcha-row">
+                <input
+                  type="text"
+                  placeholder={captchaLoading ? 'Loading challenge...' : captchaQuestion || 'Verification'}
+                  value={captchaAnswer}
+                  onChange={(e) => setCaptchaAnswer(e.target.value)}
+                  required
+                  disabled={captchaLoading}
+                />
+                <button
+                  type="button"
+                  className="captcha-refresh"
+                  onClick={() => loadCaptcha().catch((err) => setError(err.message))}
+                >
+                  Refresh
+                </button>
+              </div>
+            </div>
+
+            <button type="submit" className="auth-submit" disabled={loading}>
+              {loading ? 'Please wait...' : isRegister ? 'Create Account' : 'Log In'}
             </button>
-          </div>
 
-          <button type="submit" disabled={loading}>
-            {loading ? 'Please wait...' : isRegister ? 'Create Account' : 'Login'}
-          </button>
+            <p className="auth-switch">
+              {isRegister ? 'Already have an account?' : "Don't have an account?"}{' '}
+              <button type="button" className="inline-link" onClick={() => setIsRegister((v) => !v)}>
+                {isRegister ? 'Login' : 'Register'}
+              </button>
+            </p>
 
-          <button type="button" className="link" onClick={() => setIsRegister((v) => !v)}>
-            {isRegister ? 'Have an account? Login' : 'Need an account? Register'}
-          </button>
-        </form>
-
-        {error && <p className="error">{error}</p>}
+            {error && <p className="error auth-error">{error}</p>}
+          </form>
+        </section>
       </main>
     );
-  }
-
-  return (
+  }  return (
     <main className="container">
       <header className="header">
         <h1>TrackIt</h1>
@@ -590,3 +623,6 @@ export default function App() {
     </main>
   );
 }
+
+
+
