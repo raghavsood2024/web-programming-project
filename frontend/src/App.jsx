@@ -371,7 +371,7 @@ export default function App() {
     return (
       <main className="container">
         <header className="header">
-          <h1>Habit Tracker</h1>
+          <h1>TrackIt</h1>
           <button type="button" onClick={() => setTheme((p) => (p === 'light' ? 'dark' : 'light'))}>
             {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
           </button>
@@ -420,7 +420,7 @@ export default function App() {
   return (
     <main className="container">
       <header className="header">
-        <h1>Habit Tracker</h1>
+        <h1>TrackIt</h1>
         <div className="header-actions">
           <button type="button" onClick={() => setTheme((p) => (p === 'light' ? 'dark' : 'light'))}>
             {theme === 'light' ? 'Dark Mode' : 'Light Mode'}

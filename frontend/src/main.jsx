@@ -22,7 +22,7 @@ class ErrorBoundary extends Component {
     if (this.state.hasError) {
       return (
         <main className="container">
-          <h1>Habit Tracker</h1>
+          <h1>TrackIt</h1>
           <p className="error">Frontend crashed: {this.state.message}</p>
         </main>
       );
@@ -35,7 +35,7 @@ const rootEl = document.getElementById('root');
 
 function renderFatal(message) {
   if (rootEl) {
-    rootEl.innerHTML = `<main class="container"><h1>Habit Tracker</h1><p class="error">${message}</p></main>`;
+    rootEl.innerHTML = `<main class="container"><h1>TrackIt</h1><p class="error">${message}</p></main>`;
   } else {
     document.body.textContent = message;
   }

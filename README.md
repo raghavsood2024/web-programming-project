@@ -1,6 +1,6 @@
-# Web Programming Project - Habit Tracker
+# Web Programming Project - TrackIt
 
-Minimal full-stack habit tracker MVP.
+Minimal full-stack TrackIt MVP.
 
 ## Structure
 - `backend/` Express + SQLite API
