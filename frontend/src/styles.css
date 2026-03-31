@@ -32,6 +32,7 @@ body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
+  transition: background-color 220ms ease, color 220ms ease;
 }
 
 .container {
@@ -53,6 +54,8 @@ body {
   border-radius: 8px;
   padding: 1rem;
   margin: 1rem 0;
+  animation: fade-slide-in 220ms ease;
+  transition: background-color 220ms ease, border-color 220ms ease, transform 150ms ease;
 }
 
 form {
@@ -82,6 +85,15 @@ button {
   background: var(--button-bg);
   color: var(--button-text);
   border: none;
+  transition: transform 120ms ease, opacity 120ms ease, background-color 200ms ease, color 200ms ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+}
+
+button:active {
+  transform: translateY(0);
 }
 
 button.link {
@@ -124,18 +136,31 @@ button.link {
   outline: 2px solid var(--text);
 }
 
+.tab {
+  transition: transform 120ms ease, background-color 180ms ease, color 180ms ease, outline-color 180ms ease;
+}
+
 ul {
   list-style: none;
   padding: 0;
   margin: 0;
   display: grid;
-  gap: 0.5rem;
+  gap: 0.75rem;
+}
+
+.habit-item {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem;
+  background: var(--card-bg);
 }
 
 .habit-row {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
+  justify-content: space-between;
   gap: 0.75rem;
+  transition: background-color 180ms ease;
 }
 
 .habit-check {
@@ -144,11 +169,12 @@ ul {
 
 .habit-main {
   flex: 1;
+  min-width: 0;
 }
 
 .edit-panel {
   display: grid;
-  gap: 0.5rem;
+  gap: 0.55rem;
 }
 
 .habit-row label {
@@ -165,16 +191,21 @@ ul {
 .habit-actions {
   display: flex;
   gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .habit-actions button {
-  padding: 0.35rem 0.6rem;
+  padding: 0.42rem 0.72rem;
+  font-size: 0.9rem;
 }
 
 .habit-note {
   display: flex;
   gap: 0.5rem;
-  margin-top: 0.5rem;
+  margin-top: 0.75rem;
+  padding-top: 0.6rem;
+  border-top: 1px dashed var(--border);
 }
 
 .habit-note input {
@@ -182,7 +213,28 @@ ul {
 }
 
 .habit-note button {
-  padding: 0.35rem 0.6rem;
+  padding: 0.42rem 0.72rem;
+  white-space: nowrap;
+}
+
+.action-primary {
+  min-width: 84px;
+}
+
+.action-secondary {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.action-danger {
+  background: #b53939;
+  color: #fff;
+}
+
+.habit-meta-warning {
+  margin-top: 0.45rem;
+  display: inline-block;
 }
 
 .day-picker {
@@ -225,6 +277,12 @@ ul {
   display: flex;
   align-items: center;
   justify-content: center;
+  transition: transform 120ms ease, filter 180ms ease, background-color 200ms ease, color 200ms ease;
+}
+
+.calendar-cell:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.03);
 }
 
 .calendar-empty {
@@ -272,4 +330,43 @@ ul {
 
 .error {
   color: var(--error);
+}
+
+@keyframes fade-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .habit-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .habit-actions {
+    justify-content: flex-start;
+  }
+
+  .habit-note {
+    flex-direction: column;
+  }
+
+  .habit-note button {
+    width: 100%;
+  }
 }

@@ -526,7 +526,7 @@ export default function App() {
           {habitsForView.length === 0 && <p>No habits yet. Add one above.</p>}
           <ul>
             {habitsForView.map((habit) => (
-              <li key={habit.habitId}>
+              <li key={habit.habitId} className="habit-item">
                 <div className="habit-row">
                   <label className="habit-check">
                     <input
@@ -571,27 +571,47 @@ export default function App() {
                       </span>
                     )}
                   </div>
-                  <div className="habit-actions">
-                    {editHabitId === habit.habitId ? (
-                      <>
-                        <button type="button" onClick={() => saveEdit(habit.habitId)} disabled={loading}>
-                          Save
-                        </button>
-                        <button type="button" onClick={cancelEdit} disabled={loading}>
-                          Cancel
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button type="button" onClick={() => startEdit(habit)} disabled={loading}>
-                          Edit
-                        </button>
-                        <button type="button" onClick={() => deleteHabit(habit.habitId)} disabled={loading}>
-                          Delete
-                        </button>
-                      </>
-                    )}
-                  </div>
+                    <div className="habit-actions">
+                      {editHabitId === habit.habitId ? (
+                        <>
+                          <button
+                            type="button"
+                            className="action-primary"
+                            onClick={() => saveEdit(habit.habitId)}
+                            disabled={loading}
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            className="action-secondary"
+                            onClick={cancelEdit}
+                            disabled={loading}
+                          >
+                            Cancel
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            className="action-secondary"
+                            onClick={() => startEdit(habit)}
+                            disabled={loading}
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            className="action-danger"
+                            onClick={() => deleteHabit(habit.habitId)}
+                            disabled={loading}
+                          >
+                            Delete
+                          </button>
+                        </>
+                      )}
+                    </div>
                 </div>
                 <div className="habit-note">
                   <input
@@ -605,13 +625,14 @@ export default function App() {
                   />
                   <button
                     type="button"
+                    className="action-primary"
                     onClick={() => saveNote(habit.habitId)}
                     disabled={loading || !habit.isDueToday}
                   >
                     Save Note
                   </button>
                 </div>
-                {!habit.isDueToday && <p className="habit-meta">Not scheduled for today</p>}
+                {!habit.isDueToday && <p className="habit-meta habit-meta-warning">Not scheduled for today</p>}
               </li>
             ))}
           </ul>
