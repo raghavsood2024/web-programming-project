@@ -167,11 +167,6 @@ function parseDaysCsv(daysCsv) {
 
 function isHabitDueOnDate(habit, targetDate) {
   const createdDate = new Date(habit.created_at);
-  if (!Number.isNaN(createdDate.getTime())) {
-    const createdYmd = formatDateYmd(createdDate);
-    const targetYmd = formatDateYmd(targetDate);
-    if (targetYmd < createdYmd) return false;
-  }
 
   if (habit.schedule_type === 'weekly') {
     if (Number.isNaN(createdDate.getTime())) return false;
