@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:4000';
-const WEEK_DAYS = [
+const DAYS = [
   { value: 0, label: 'Sun' },
   { value: 1, label: 'Mon' },
   { value: 2, label: 'Tue' },
@@ -11,74 +11,64 @@ const WEEK_DAYS = [
   { value: 6, label: 'Sat' },
 ];
 
-function api(path, method = 'GET', body, token) {
-  return fetch(`${API_BASE}${path}`, {
+async function api(path, method = 'GET', body, token) {
+  const res = await fetch(`${API_BASE}${path}`, {
     method,
     headers: {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  }).then(async (res) => {
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.error || 'Request failed');
-    return data;
+    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
   });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Request failed');
+  return data;
 }
 
-function normalizeTodayResponse(data) {
-  return {
-    date: typeof data?.date === 'string' ? data.date : '',
-    habits: Array.isArray(data?.habits)
-      ? data.habits.map((habit) => ({
-          ...habit,
-          notes: typeof habit?.notes === 'string' ? habit.notes : '',
-          scheduleType: String(habit?.scheduleType || habit?.schedule_type || 'daily').toLowerCase(),
-          daysOfWeek:
-            typeof habit?.daysOfWeek === 'string'
-              ? habit.daysOfWeek
-              : typeof habit?.days_of_week === 'string'
-                ? habit.days_of_week
-                : '',
-        }))
-      : [],
-  };
-}
-
-function normalizeHabitsResponse(data) {
-  return Array.isArray(data)
-    ? data.map((habit) => ({
-        habitId: habit.id,
-        name: habit.name,
-        scheduleType: String(habit.scheduleType || habit.schedule_type || 'daily').toLowerCase(),
-        daysOfWeek:
-          typeof habit.daysOfWeek === 'string'
-            ? habit.daysOfWeek
-            : typeof habit.days_of_week === 'string'
-              ? habit.days_of_week
-              : '',
-      }))
-    : [];
-}
-
-function formatScheduleLabel(habit) {
-  if (habit.scheduleType === 'weekly') return 'Weekly';
-  if (habit.scheduleType === 'specific_days') {
-    const days = (habit.daysOfWeek || '')
+function scheduleLabel(scheduleType, daysOfWeek) {
+  if (scheduleType === 'weekly') return 'Weekly';
+  if (scheduleType === 'specific_days') {
+    const labels = String(daysOfWeek || '')
       .split(',')
-      .filter((v) => v !== '')
-      .map((v) => Number(v))
-      .filter((v) => Number.isInteger(v) && v >= 0 && v <= 6)
-      .map((v) => WEEK_DAYS.find((d) => d.value === v)?.label)
+      .map(Number)
+      .map((d) => DAYS.find((x) => x.value === d)?.label)
       .filter(Boolean);
-    return days.length > 0 ? `Specific: ${days.join(', ')}` : 'Specific days';
+    return labels.length ? `Specific: ${labels.join(', ')}` : 'Specific days';
   }
   return 'Daily';
+}
+
+function DayPicker({ selected, onToggle }) {
+  return (
+    <div className="day-picker">
+      {DAYS.map((day) => (
+        <label key={day.value}>
+          <input
+            type="checkbox"
+            checked={selected.includes(day.value)}
+            onChange={() => onToggle(day.value)}
+          />
+          {day.label}
+        </label>
+      ))}
+    </div>
+  );
+}
+
+function parseDaysCsv(csv) {
+  return String(csv || '')
+    .split(',')
+    .filter(Boolean)
+    .map(Number)
+    .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6);
 }
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
   const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
+  const [activeTab, setActiveTab] = useState('today');
+
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [isRegister, setIsRegister] = useState(false);
@@ -86,68 +76,48 @@ export default function App() {
   const [captchaQuestion, setCaptchaQuestion] = useState('');
   const [captchaAnswer, setCaptchaAnswer] = useState('');
   const [captchaLoading, setCaptchaLoading] = useState(false);
+
   const [habitName, setHabitName] = useState('');
   const [scheduleType, setScheduleType] = useState('daily');
   const [selectedDays, setSelectedDays] = useState([]);
+
   const [today, setToday] = useState({ date: '', habits: [] });
-  const [allHabits, setAllHabits] = useState([]);
-  const [activeTab, setActiveTab] = useState('today');
+  const [habits, setHabits] = useState([]);
+  const [notes, setNotes] = useState({});
+
+  const [editId, setEditId] = useState(null);
+  const [editName, setEditName] = useState('');
+  const [editType, setEditType] = useState('daily');
+  const [editDays, setEditDays] = useState([]);
+
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7));
-  const [calendarDays, setCalendarDays] = useState([]);
+  const [monthDays, setMonthDays] = useState([]);
   const [calendarLoading, setCalendarLoading] = useState(false);
-  const [selectedCalendarDate, setSelectedCalendarDate] = useState('');
+  const [selectedDate, setSelectedDate] = useState('');
   const [selectedDateHabits, setSelectedDateHabits] = useState([]);
   const [selectedDateLoading, setSelectedDateLoading] = useState(false);
-  const [error, setError] = useState('');
+
   const [loading, setLoading] = useState(false);
-  const [editHabitId, setEditHabitId] = useState(null);
-  const [editHabitName, setEditHabitName] = useState('');
-  const [editScheduleType, setEditScheduleType] = useState('daily');
-  const [editSelectedDays, setEditSelectedDays] = useState([]);
-  const [noteDrafts, setNoteDrafts] = useState({});
+  const [error, setError] = useState('');
 
-  function applyTodayData(data) {
-    const normalized = normalizeTodayResponse(data);
-    setToday(normalized);
-    setNoteDrafts((prev) => {
-      const next = {};
-      normalized.habits.forEach((habit) => {
-        const currentDraft = prev[habit.habitId];
-        next[habit.habitId] = typeof currentDraft === 'string' ? currentDraft : habit.notes || '';
-      });
-      return next;
-    });
-  }
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme);
+    localStorage.setItem('theme', theme);
+  }, [theme]);
 
-  async function loadToday(authToken = token) {
-    const data = await api('/api/entries/today', 'GET', undefined, authToken);
-    applyTodayData(data);
-  }
-
-  async function loadHabits(authToken = token) {
-    const data = await api('/api/habits', 'GET', undefined, authToken);
-    setAllHabits(normalizeHabitsResponse(data));
-  }
-
-  async function loadMonth(month = selectedMonth, authToken = token) {
-    setCalendarLoading(true);
-    try {
-      const data = await api(`/api/entries/month?month=${month}`, 'GET', undefined, authToken);
-      setCalendarDays(Array.isArray(data?.days) ? data.days : []);
-    } finally {
-      setCalendarLoading(false);
+  useEffect(() => {
+    if (!token && !captchaId) {
+      loadCaptcha().catch((e) => setError(e.message));
     }
-  }
+  }, [token, captchaId]);
 
-  async function loadDayDetails(date, authToken = token) {
-    setSelectedDateLoading(true);
-    try {
-      const data = await api(`/api/entries/day?date=${date}`, 'GET', undefined, authToken);
-      setSelectedDateHabits(Array.isArray(data?.habits) ? data.habits : []);
-    } finally {
-      setSelectedDateLoading(false);
-    }
-  }
+  useEffect(() => {
+    if (token) refreshAll().catch((e) => setError(e.message));
+  }, [token]);
+
+  useEffect(() => {
+    if (token) loadMonth(selectedMonth).catch((e) => setError(e.message));
+  }, [selectedMonth, token]);
 
   async function loadCaptcha() {
     setCaptchaLoading(true);
@@ -161,29 +131,59 @@ export default function App() {
     }
   }
 
-  useEffect(() => {
-    if (!token) return;
-    Promise.all([loadToday(), loadHabits(), loadMonth(selectedMonth)]).catch((err) => setError(err.message));
-  }, [token]);
+  async function loadToday() {
+    const data = await api('/api/entries/today', 'GET', undefined, token);
+    const habitsList = Array.isArray(data?.habits)
+      ? data.habits.map((h) => ({
+          habitId: h.habitId,
+          name: h.name,
+          scheduleType: String(h.scheduleType || h.schedule_type || 'daily').toLowerCase(),
+          daysOfWeek: String(h.daysOfWeek || h.days_of_week || ''),
+          completed: Number(h.completed) === 1 ? 1 : 0,
+          notes: String(h.notes || ''),
+        }))
+      : [];
 
-  useEffect(() => {
-    if (!token) return;
-    loadMonth(selectedMonth).catch((err) => setError(err.message));
-  }, [selectedMonth, token]);
+    setToday({ date: String(data?.date || ''), habits: habitsList });
 
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('theme', theme);
-  }, [theme]);
+    setNotes((prev) => {
+      const next = {};
+      for (const h of habitsList) next[h.habitId] = prev[h.habitId] ?? h.notes ?? '';
+      return next;
+    });
+  }
 
-  useEffect(() => {
-    if (token) return;
-    if (!captchaId) {
-      loadCaptcha().catch((err) => setError(err.message));
+  async function loadHabits() {
+    const data = await api('/api/habits', 'GET', undefined, token);
+    setHabits(
+      Array.isArray(data)
+        ? data.map((h) => ({
+            habitId: h.id,
+            name: h.name,
+            scheduleType: String(h.scheduleType || h.schedule_type || 'daily').toLowerCase(),
+            daysOfWeek: String(h.daysOfWeek || h.days_of_week || ''),
+          }))
+        : []
+    );
+  }
+
+  async function loadMonth(month) {
+    setCalendarLoading(true);
+    try {
+      const data = await api(`/api/entries/month?month=${month}`, 'GET', undefined, token);
+      setMonthDays(Array.isArray(data?.days) ? data.days : []);
+    } finally {
+      setCalendarLoading(false);
     }
-  }, [token, captchaId]);
+  }
 
-  async function handleAuth(e) {
+  async function refreshAll() {
+    await loadToday();
+    await loadHabits();
+    await loadMonth(selectedMonth);
+  }
+
+  async function submitAuth(e) {
     e.preventDefault();
     setError('');
     setLoading(true);
@@ -194,9 +194,9 @@ export default function App() {
       setToken(data.token);
       setEmail('');
       setPassword('');
-      setCaptchaAnswer('');
       setCaptchaId('');
       setCaptchaQuestion('');
+      setCaptchaAnswer('');
     } catch (err) {
       setError(err.message);
       try {
@@ -209,13 +209,14 @@ export default function App() {
     }
   }
 
+  function toggleArrayDay(setter, day) {
+    setter((prev) => (prev.includes(day) ? prev.filter((x) => x !== day) : [...prev, day].sort((a, b) => a - b)));
+  }
+
   async function addHabit(e) {
     e.preventDefault();
     if (!habitName.trim()) return;
-    if (scheduleType === 'specific_days' && selectedDays.length === 0) {
-      setError('Select at least one day for specific-days schedule');
-      return;
-    }
+
     setError('');
     setLoading(true);
     try {
@@ -228,8 +229,7 @@ export default function App() {
       setHabitName('');
       setScheduleType('daily');
       setSelectedDays([]);
-      await Promise.all([loadToday(), loadHabits()]);
-      await loadMonth(selectedMonth);
+      await refreshAll();
     } catch (err) {
       setError(err.message);
     } finally {
@@ -237,15 +237,64 @@ export default function App() {
     }
   }
 
-  async function toggleHabit(habitId, completed) {
+  function startEdit(habit) {
+    setEditId(habit.habitId);
+    setEditName(habit.name);
+    setEditType(habit.scheduleType || 'daily');
+    setEditDays(parseDaysCsv(habit.daysOfWeek));
+  }
+
+  function cancelEdit() {
+    setEditId(null);
+    setEditName('');
+    setEditType('daily');
+    setEditDays([]);
+  }
+
+  async function saveEdit(habitId) {
+    if (!editName.trim()) return;
+
+    setError('');
+    setLoading(true);
+    try {
+      await api(
+        `/api/habits/${habitId}`,
+        'PUT',
+        { name: editName, scheduleType: editType, daysOfWeek: editType === 'specific_days' ? editDays : [] },
+        token
+      );
+      await refreshAll();
+      cancelEdit();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function removeHabit(habitId) {
+    setError('');
+    setLoading(true);
+    try {
+      await api(`/api/habits/${habitId}`, 'DELETE', undefined, token);
+      setToday((prev) => ({ ...prev, habits: prev.habits.filter((h) => h.habitId !== habitId) }));
+      setHabits((prev) => prev.filter((h) => h.habitId !== habitId));
+      await loadMonth(selectedMonth);
+      if (editId === habitId) cancelEdit();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function toggleDone(habitId, completed) {
     setError('');
     try {
       await api('/api/entries/today', 'POST', { habitId, completed }, token);
       setToday((prev) => ({
         ...prev,
-        habits: prev.habits.map((h) =>
-          h.habitId === habitId ? { ...h, completed: completed ? 1 : 0 } : h
-        ),
+        habits: prev.habits.map((h) => (h.habitId === habitId ? { ...h, completed: completed ? 1 : 0 } : h)),
       }));
       await loadMonth(selectedMonth);
     } catch (err) {
@@ -257,14 +306,11 @@ export default function App() {
     setError('');
     setLoading(true);
     try {
-      const note = noteDrafts[habitId] || '';
       const habit = today.habits.find((h) => h.habitId === habitId);
       const completed = Boolean(habit?.completed);
+      const note = notes[habitId] || '';
       await api('/api/entries/today', 'POST', { habitId, completed, notes: note }, token);
-      setToday((prev) => ({
-        ...prev,
-        habits: prev.habits.map((h) => (h.habitId === habitId ? { ...h, notes: note } : h)),
-      }));
+      setToday((prev) => ({ ...prev, habits: prev.habits.map((h) => (h.habitId === habitId ? { ...h, notes: note } : h)) }));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -272,72 +318,17 @@ export default function App() {
     }
   }
 
-  function startEdit(habit) {
-    setEditHabitId(habit.habitId);
-    setEditHabitName(habit.name);
-    setEditScheduleType(habit.scheduleType || 'daily');
-    setEditSelectedDays(
-      (habit.daysOfWeek || '')
-        .split(',')
-        .filter((v) => v !== '')
-        .map((v) => Number(v))
-        .filter((v) => Number.isInteger(v) && v >= 0 && v <= 6)
-    );
-  }
-
-  function cancelEdit() {
-    setEditHabitId(null);
-    setEditHabitName('');
-    setEditScheduleType('daily');
-    setEditSelectedDays([]);
-  }
-
-  async function saveEdit(habitId) {
-    if (!editHabitName.trim()) return;
-    if (editScheduleType === 'specific_days' && editSelectedDays.length === 0) {
-      setError('Select at least one day for specific-days schedule');
-      return;
-    }
+  async function openDate(date) {
+    setSelectedDate(date);
     setError('');
-    setLoading(true);
+    setSelectedDateLoading(true);
     try {
-      await api(
-        `/api/habits/${habitId}`,
-        'PUT',
-        {
-          name: editHabitName,
-          scheduleType: editScheduleType,
-          daysOfWeek: editScheduleType === 'specific_days' ? editSelectedDays : [],
-        },
-        token
-      );
-      await Promise.all([loadToday(), loadHabits(), loadMonth(selectedMonth)]);
-      cancelEdit();
+      const data = await api(`/api/entries/day?date=${date}`, 'GET', undefined, token);
+      setSelectedDateHabits(Array.isArray(data?.habits) ? data.habits : []);
     } catch (err) {
       setError(err.message);
     } finally {
-      setLoading(false);
-    }
-  }
-
-  async function deleteHabit(habitId) {
-    setError('');
-    setLoading(true);
-    try {
-      await api(`/api/habits/${habitId}`, 'DELETE', undefined, token);
-      setToday((prev) => ({
-        ...prev,
-        habits: prev.habits.filter((h) => h.habitId !== habitId),
-      }));
-      setAllHabits((prev) => prev.filter((h) => h.habitId !== habitId));
-      await loadMonth(selectedMonth);
-      if (editHabitId === habitId) {
-        cancelEdit();
-      }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
+      setSelectedDateLoading(false);
     }
   }
 
@@ -345,87 +336,58 @@ export default function App() {
     localStorage.removeItem('token');
     setToken('');
     setToday({ date: '', habits: [] });
-    setAllHabits([]);
-    setCalendarDays([]);
-    setSelectedCalendarDate('');
+    setHabits([]);
+    setNotes({});
+    setMonthDays([]);
+    setSelectedDate('');
     setSelectedDateHabits([]);
-    setNoteDrafts({});
+    setActiveTab('today');
   }
 
-  function toggleTheme() {
-    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
-  }
+  const mergedHabits = useMemo(() => {
+    const map = new Map(today.habits.map((h) => [h.habitId, h]));
+    return habits.map((h) => {
+      const t = map.get(h.habitId);
+      return {
+        ...h,
+        isDueToday: Boolean(t),
+        completed: t ? t.completed : 0,
+      };
+    });
+  }, [habits, today.habits]);
 
-  function toggleSelectedDay(dayValue) {
-    setSelectedDays((prev) =>
-      prev.includes(dayValue) ? prev.filter((d) => d !== dayValue) : [...prev, dayValue].sort((a, b) => a - b)
-    );
-  }
-
-  function toggleEditSelectedDay(dayValue) {
-    setEditSelectedDays((prev) =>
-      prev.includes(dayValue) ? prev.filter((d) => d !== dayValue) : [...prev, dayValue].sort((a, b) => a - b)
-    );
-  }
-
-  const todayByHabitId = new Map(today.habits.map((h) => [h.habitId, h]));
-  const habitsForView = allHabits.map((habit) => {
-    const todayData = todayByHabitId.get(habit.habitId);
-    return {
-      ...habit,
-      isDueToday: Boolean(todayData),
-      completed: todayData ? todayData.completed : 0,
-      notes: todayData ? todayData.notes : '',
-    };
-  });
-
-  const monthFirstDay = selectedMonth ? new Date(`${selectedMonth}-01T00:00:00`) : new Date();
-  const monthStartOffset = Number.isNaN(monthFirstDay.getTime()) ? 0 : monthFirstDay.getDay();
-  const dayMap = new Map(calendarDays.map((day) => [day.date, day]));
-  const calendarCells = [];
-  for (let i = 0; i < monthStartOffset; i += 1) {
-    calendarCells.push({ empty: true, key: `empty-${i}` });
-  }
-  calendarDays.forEach((day, index) => {
-    const dayNum = Number(day.date.split('-')[2]);
-    calendarCells.push({ ...day, dayNum, empty: false, key: `day-${index}-${day.date}` });
-  });
-
-  async function handleCalendarDayClick(date) {
-    setSelectedCalendarDate(date);
-    setError('');
-    try {
-      await loadDayDetails(date);
-    } catch (err) {
-      setError(err.message);
-    }
-  }
+  const calendarCells = useMemo(() => {
+    const first = new Date(`${selectedMonth}-01T00:00:00`);
+    const offset = Number.isNaN(first.getTime()) ? 0 : first.getDay();
+    const cells = [];
+    for (let i = 0; i < offset; i += 1) cells.push({ key: `e-${i}`, empty: true });
+    monthDays.forEach((d, i) => {
+      cells.push({ ...d, dayNum: Number(String(d.date).split('-')[2]), key: `d-${i}-${d.date}`, empty: false });
+    });
+    return cells;
+  }, [monthDays, selectedMonth]);
 
   if (!token) {
     return (
       <main className="container">
         <header className="header">
           <h1>Habit Tracker</h1>
-          <button type="button" onClick={toggleTheme}>
+          <button type="button" onClick={() => setTheme((p) => (p === 'light' ? 'dark' : 'light'))}>
             {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
           </button>
         </header>
-        <form onSubmit={handleAuth} className="card">
+
+        <form onSubmit={submitAuth} className="card">
           <h2>{isRegister ? 'Register' : 'Login'}</h2>
-          <input
-            type="email"
-            placeholder="Email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-          />
+          <input type="email" placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} required />
           <input
             type="password"
-            placeholder="Password (min 6 chars)"
+            placeholder="Password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
           />
+
           <div className="captcha-box">
             <p>{captchaLoading ? 'Loading captcha...' : `Captcha: ${captchaQuestion}`}</p>
             <input
@@ -440,13 +402,16 @@ export default function App() {
               Refresh Captcha
             </button>
           </div>
+
           <button type="submit" disabled={loading}>
             {loading ? 'Please wait...' : isRegister ? 'Create Account' : 'Login'}
           </button>
+
           <button type="button" className="link" onClick={() => setIsRegister((v) => !v)}>
             {isRegister ? 'Have an account? Login' : 'Need an account? Register'}
           </button>
         </form>
+
         {error && <p className="error">{error}</p>}
       </main>
     );
@@ -457,7 +422,7 @@ export default function App() {
       <header className="header">
         <h1>Habit Tracker</h1>
         <div className="header-actions">
-          <button type="button" onClick={toggleTheme}>
+          <button type="button" onClick={() => setTheme((p) => (p === 'light' ? 'dark' : 'light'))}>
             {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
           </button>
           <button type="button" onClick={logout}>Logout</button>
@@ -465,57 +430,21 @@ export default function App() {
       </header>
 
       <div className="tabs">
-        <button
-          type="button"
-          className={activeTab === 'add' ? 'tab tab-active' : 'tab'}
-          onClick={() => setActiveTab('add')}
-        >
-          Add Habit
-        </button>
-        <button
-          type="button"
-          className={activeTab === 'today' ? 'tab tab-active' : 'tab'}
-          onClick={() => setActiveTab('today')}
-        >
-          Today
-        </button>
-        <button
-          type="button"
-          className={activeTab === 'calendar' ? 'tab tab-active' : 'tab'}
-          onClick={() => setActiveTab('calendar')}
-        >
-          Calendar
-        </button>
+        <button type="button" className={activeTab === 'add' ? 'tab tab-active' : 'tab'} onClick={() => setActiveTab('add')}>Add Habit</button>
+        <button type="button" className={activeTab === 'today' ? 'tab tab-active' : 'tab'} onClick={() => setActiveTab('today')}>Today</button>
+        <button type="button" className={activeTab === 'calendar' ? 'tab tab-active' : 'tab'} onClick={() => setActiveTab('calendar')}>Calendar</button>
       </div>
 
       {activeTab === 'add' && (
         <form onSubmit={addHabit} className="card">
           <h2>Add Habit</h2>
-          <input
-            type="text"
-            placeholder="e.g. Drink 2L water"
-            value={habitName}
-            onChange={(e) => setHabitName(e.target.value)}
-          />
+          <input type="text" placeholder="e.g. Drink 2L water" value={habitName} onChange={(e) => setHabitName(e.target.value)} />
           <select value={scheduleType} onChange={(e) => setScheduleType(e.target.value)}>
             <option value="daily">Daily</option>
             <option value="weekly">Weekly</option>
             <option value="specific_days">Specific days</option>
           </select>
-          {scheduleType === 'specific_days' && (
-            <div className="day-picker">
-              {WEEK_DAYS.map((day) => (
-                <label key={day.value}>
-                  <input
-                    type="checkbox"
-                    checked={selectedDays.includes(day.value)}
-                    onChange={() => toggleSelectedDay(day.value)}
-                  />
-                  {day.label}
-                </label>
-              ))}
-            </div>
-          )}
+          {scheduleType === 'specific_days' && <DayPicker selected={selectedDays} onToggle={(d) => toggleArrayDay(setSelectedDays, d)} />}
           <button type="submit" disabled={loading}>Add</button>
         </form>
       )}
@@ -523,9 +452,10 @@ export default function App() {
       {activeTab === 'today' && (
         <section className="card">
           <h2>Habits (Today: {today.date || '-'})</h2>
-          {habitsForView.length === 0 && <p>No habits yet. Add one above.</p>}
+          {mergedHabits.length === 0 && <p>No habits yet. Add one above.</p>}
+
           <ul>
-            {habitsForView.map((habit) => (
+            {mergedHabits.map((habit) => (
               <li key={habit.habitId} className="habit-item">
                 <div className="habit-row">
                   <label className="habit-check">
@@ -533,105 +463,57 @@ export default function App() {
                       type="checkbox"
                       checked={Boolean(habit.completed)}
                       disabled={!habit.isDueToday}
-                      onChange={(e) => toggleHabit(habit.habitId, e.target.checked)}
+                      onChange={(e) => toggleDone(habit.habitId, e.target.checked)}
                     />
                   </label>
+
                   <div className="habit-main">
-                    {editHabitId === habit.habitId ? (
+                    {editId === habit.habitId ? (
                       <div className="edit-panel">
-                        <input
-                          type="text"
-                          value={editHabitName}
-                          onChange={(e) => setEditHabitName(e.target.value)}
-                        />
-                        <select value={editScheduleType} onChange={(e) => setEditScheduleType(e.target.value)}>
+                        <input type="text" value={editName} onChange={(e) => setEditName(e.target.value)} />
+                        <select value={editType} onChange={(e) => setEditType(e.target.value)}>
                           <option value="daily">Daily</option>
                           <option value="weekly">Weekly</option>
                           <option value="specific_days">Specific days</option>
                         </select>
-                        {editScheduleType === 'specific_days' && (
-                          <div className="day-picker">
-                            {WEEK_DAYS.map((day) => (
-                              <label key={day.value}>
-                                <input
-                                  type="checkbox"
-                                  checked={editSelectedDays.includes(day.value)}
-                                  onChange={() => toggleEditSelectedDay(day.value)}
-                                />
-                                {day.label}
-                              </label>
-                            ))}
-                          </div>
-                        )}
+                        {editType === 'specific_days' && <DayPicker selected={editDays} onToggle={(d) => toggleArrayDay(setEditDays, d)} />}
                       </div>
                     ) : (
                       <span>
                         {habit.name}
-                        <span className="habit-meta"> ({formatScheduleLabel(habit)})</span>
+                        <span className="habit-meta"> ({scheduleLabel(habit.scheduleType, habit.daysOfWeek)})</span>
                       </span>
                     )}
                   </div>
-                    <div className="habit-actions">
-                      {editHabitId === habit.habitId ? (
-                        <>
-                          <button
-                            type="button"
-                            className="action-primary"
-                            onClick={() => saveEdit(habit.habitId)}
-                            disabled={loading}
-                          >
-                            Save
-                          </button>
-                          <button
-                            type="button"
-                            className="action-secondary"
-                            onClick={cancelEdit}
-                            disabled={loading}
-                          >
-                            Cancel
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <button
-                            type="button"
-                            className="action-secondary"
-                            onClick={() => startEdit(habit)}
-                            disabled={loading}
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            className="action-danger"
-                            onClick={() => deleteHabit(habit.habitId)}
-                            disabled={loading}
-                          >
-                            Delete
-                          </button>
-                        </>
-                      )}
-                    </div>
+
+                  <div className="habit-actions">
+                    {editId === habit.habitId ? (
+                      <>
+                        <button type="button" className="action-primary" onClick={() => saveEdit(habit.habitId)} disabled={loading}>Save</button>
+                        <button type="button" className="action-secondary" onClick={cancelEdit} disabled={loading}>Cancel</button>
+                      </>
+                    ) : (
+                      <>
+                        <button type="button" className="action-secondary" onClick={() => startEdit(habit)} disabled={loading}>Edit</button>
+                        <button type="button" className="action-danger" onClick={() => removeHabit(habit.habitId)} disabled={loading}>Delete</button>
+                      </>
+                    )}
+                  </div>
                 </div>
+
                 <div className="habit-note">
                   <input
                     type="text"
                     placeholder={habit.isDueToday ? 'Add note about this activity' : 'Not scheduled today'}
-                    value={noteDrafts[habit.habitId] || ''}
+                    value={notes[habit.habitId] || ''}
                     disabled={!habit.isDueToday}
-                    onChange={(e) =>
-                      setNoteDrafts((prev) => ({ ...prev, [habit.habitId]: e.target.value }))
-                    }
+                    onChange={(e) => setNotes((prev) => ({ ...prev, [habit.habitId]: e.target.value }))}
                   />
-                  <button
-                    type="button"
-                    className="action-primary"
-                    onClick={() => saveNote(habit.habitId)}
-                    disabled={loading || !habit.isDueToday}
-                  >
+                  <button type="button" className="action-primary" onClick={() => saveNote(habit.habitId)} disabled={loading || !habit.isDueToday}>
                     Save Note
                   </button>
                 </div>
+
                 {!habit.isDueToday && <p className="habit-meta habit-meta-warning">Not scheduled for today</p>}
               </li>
             ))}
@@ -647,15 +529,17 @@ export default function App() {
             value={selectedMonth}
             onChange={(e) => {
               setSelectedMonth(e.target.value);
-              setSelectedCalendarDate('');
+              setSelectedDate('');
               setSelectedDateHabits([]);
             }}
           />
+
           <div className="calendar-head">
-            {WEEK_DAYS.map((day) => (
-              <div key={`head-${day.value}`} className="calendar-head-cell">{day.label}</div>
+            {DAYS.map((d) => (
+              <div key={`h-${d.value}`} className="calendar-head-cell">{d.label}</div>
             ))}
           </div>
+
           <div className="calendar-grid">
             {calendarCells.map((cell) =>
               cell.empty ? (
@@ -664,10 +548,8 @@ export default function App() {
                 <button
                   key={cell.key}
                   type="button"
-                  className={`calendar-cell calendar-${cell.status} ${
-                    selectedCalendarDate === cell.date ? 'calendar-selected' : ''
-                  }`}
-                  onClick={() => handleCalendarDayClick(cell.date)}
+                  className={`calendar-cell calendar-${cell.status} ${selectedDate === cell.date ? 'calendar-selected' : ''}`}
+                  onClick={() => openDate(cell.date)}
                   title={`${cell.date} (${cell.completedHabits}/${cell.totalHabits})`}
                 >
                   <span>{cell.dayNum}</span>
@@ -675,27 +557,26 @@ export default function App() {
               )
             )}
           </div>
+
           {calendarLoading && <p>Loading calendar...</p>}
 
-          {selectedCalendarDate && (
+          {selectedDate && (
             <div className="day-details">
-              <h3>{selectedCalendarDate}</h3>
+              <h3>{selectedDate}</h3>
               {selectedDateLoading && <p>Loading habits...</p>}
-              {!selectedDateLoading && selectedDateHabits.length === 0 && (
-                <p>No scheduled habits for this day.</p>
-              )}
+              {!selectedDateLoading && selectedDateHabits.length === 0 && <p>No scheduled habits for this day.</p>}
               {!selectedDateLoading && selectedDateHabits.length > 0 && (
                 <ul>
-                  {selectedDateHabits.map((habit) => (
-                    <li key={`day-${habit.habitId}`}>
+                  {selectedDateHabits.map((h) => (
+                    <li key={`day-${h.habitId}`}>
                       <span>
-                        {habit.name}
-                        <span className="habit-meta"> ({formatScheduleLabel(habit)})</span>
+                        {h.name}
+                        <span className="habit-meta"> ({scheduleLabel(h.scheduleType, h.daysOfWeek)})</span>
                       </span>
-                      <span className={habit.completed ? 'day-status done' : 'day-status missed'}>
-                        {habit.completed ? 'Done' : 'Not done'}
+                      <span className={h.completed ? 'day-status done' : 'day-status missed'}>
+                        {h.completed ? 'Done' : 'Not done'}
                       </span>
-                      {habit.notes ? <p className="habit-meta">Note: {habit.notes}</p> : null}
+                      {h.notes ? <p className="habit-meta">Note: {h.notes}</p> : null}
                     </li>
                   ))}
                 </ul>

@@ -10,8 +10,8 @@ require('dotenv').config();
 const app = express();
 const PORT = process.env.PORT || 4000;
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret-change-me';
-const dbPath = path.join(__dirname, 'habit-tracker.db');
-const db = new sqlite3.Database(dbPath);
+
+const db = new sqlite3.Database(path.join(__dirname, 'habit-tracker.db'));
 
 app.use(cors());
 app.use(express.json());
@@ -21,12 +21,9 @@ const captchaStore = new Map();
 
 function run(sql, params = []) {
   return new Promise((resolve, reject) => {
-    db.run(sql, params, function onRun(err) {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(this);
-      }
+    db.run(sql, params, function onDone(err) {
+      if (err) reject(err);
+      else resolve(this);
     });
   });
 }
@@ -34,11 +31,8 @@ function run(sql, params = []) {
 function get(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.get(sql, params, (err, row) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(row);
-      }
+      if (err) reject(err);
+      else resolve(row);
     });
   });
 }
@@ -46,11 +40,8 @@ function get(sql, params = []) {
 function all(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.all(sql, params, (err, rows) => {
-      if (err) {
-        reject(err);
-      } else {
-        resolve(rows);
-      }
+      if (err) reject(err);
+      else resolve(rows);
     });
   });
 }
@@ -89,88 +80,59 @@ async function initDb() {
     )
   `);
 
-  const habitEntryColumns = await all('PRAGMA table_info(habit_entries)');
-  const hasNotes = habitEntryColumns.some((col) => col.name === 'notes');
-  if (!hasNotes) {
-    await run("ALTER TABLE habit_entries ADD COLUMN notes TEXT DEFAULT ''");
-  }
-
-  const habitColumns = await all('PRAGMA table_info(habits)');
-  const hasScheduleType = habitColumns.some((col) => col.name === 'schedule_type');
-  if (!hasScheduleType) {
-    await run("ALTER TABLE habits ADD COLUMN schedule_type TEXT NOT NULL DEFAULT 'daily'");
-  }
-  const hasDaysOfWeek = habitColumns.some((col) => col.name === 'days_of_week');
-  if (!hasDaysOfWeek) {
-    await run("ALTER TABLE habits ADD COLUMN days_of_week TEXT DEFAULT ''");
-  }
+  await run("ALTER TABLE habits ADD COLUMN schedule_type TEXT NOT NULL DEFAULT 'daily'").catch(() => {});
+  await run("ALTER TABLE habits ADD COLUMN days_of_week TEXT DEFAULT ''").catch(() => {});
+  await run("ALTER TABLE habit_entries ADD COLUMN notes TEXT DEFAULT ''").catch(() => {});
 }
 
-function parseScheduleInput(scheduleType, daysOfWeek) {
-  const allowed = ['daily', 'weekly', 'specific_days'];
-  const nextScheduleType = scheduleType || 'daily';
-  if (!allowed.includes(nextScheduleType)) {
-    return { error: 'scheduleType must be daily, weekly, or specific_days' };
-  }
-
-  if (nextScheduleType === 'specific_days') {
-    if (!Array.isArray(daysOfWeek) || daysOfWeek.length === 0) {
-      return { error: 'daysOfWeek is required for specific_days schedule' };
-    }
-
-    const parsed = [...new Set(daysOfWeek.map((d) => Number(d)))].sort((a, b) => a - b);
-    const invalid = parsed.some((d) => !Number.isInteger(d) || d < 0 || d > 6);
-    if (invalid) {
-      return { error: 'daysOfWeek must contain integers 0-6' };
-    }
-    return { scheduleType: nextScheduleType, daysOfWeekCsv: parsed.join(',') };
-  }
-
-  return { scheduleType: nextScheduleType, daysOfWeekCsv: '' };
+function isYmd(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value);
 }
 
-function parseDateYmd(dateStr) {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-    return null;
-  }
-  const [yearStr, monthStr, dayStr] = dateStr.split('-');
-  const year = Number(yearStr);
-  const month = Number(monthStr);
-  const day = Number(dayStr);
-  const date = new Date(year, month - 1, day);
-  if (
-    Number.isNaN(date.getTime()) ||
-    date.getFullYear() !== year ||
-    date.getMonth() !== month - 1 ||
-    date.getDate() !== day
-  ) {
-    return null;
-  }
-  return date;
+function isYm(value) {
+  return /^\d{4}-\d{2}$/.test(value);
 }
 
 function formatDateYmd(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
-function parseDaysCsv(daysCsv) {
-  if (!daysCsv) return [];
-  return daysCsv
+function parseDaysCsv(csv) {
+  if (!csv) return [];
+  return csv
     .split(',')
-    .filter((v) => v !== '')
-    .map((v) => Number(v))
-    .filter((v) => Number.isInteger(v) && v >= 0 && v <= 6);
+    .map((x) => Number(x))
+    .filter((x) => Number.isInteger(x) && x >= 0 && x <= 6);
+}
+
+function normalizeSchedule(scheduleType, daysOfWeek) {
+  let type = scheduleType;
+  if (type !== 'daily' && type !== 'weekly' && type !== 'specific_days') {
+    type = 'daily';
+  }
+
+  let days = '';
+  if (type === 'specific_days') {
+    const arr = Array.isArray(daysOfWeek) ? daysOfWeek : [];
+    const parsed = [...new Set(arr.map((x) => Number(x)).filter((x) => Number.isInteger(x) && x >= 0 && x <= 6))]
+      .sort((a, b) => a - b);
+    if (parsed.length === 0) {
+      return { error: 'daysOfWeek is required for specific_days schedule' };
+    }
+    days = parsed.join(',');
+  }
+
+  return { scheduleType: type, daysOfWeekCsv: days };
 }
 
 function isHabitDueOnDate(habit, targetDate) {
-  const createdDate = new Date(habit.created_at);
-
   if (habit.schedule_type === 'weekly') {
+    const createdDate = new Date(habit.created_at);
     if (Number.isNaN(createdDate.getTime())) return false;
-    return targetDate.getDay() === createdDate.getDay();
+    return createdDate.getDay() === targetDate.getDay();
   }
 
   if (habit.schedule_type === 'specific_days') {
@@ -181,40 +143,38 @@ function isHabitDueOnDate(habit, targetDate) {
   return true;
 }
 
-function createCaptchaChallenge() {
+function cleanupCaptchaStore() {
+  const now = Date.now();
+  for (const [id, item] of captchaStore.entries()) {
+    if (item.expiresAt <= now) captchaStore.delete(id);
+  }
+}
+
+function createCaptcha() {
   const a = Math.floor(Math.random() * 10) + 1;
   const b = Math.floor(Math.random() * 10) + 1;
-  const answer = String(a + b);
   const captchaId = crypto.randomBytes(16).toString('hex');
-  captchaStore.set(captchaId, { answer, expiresAt: Date.now() + CAPTCHA_TTL_MS });
+  captchaStore.set(captchaId, { answer: String(a + b), expiresAt: Date.now() + CAPTCHA_TTL_MS });
   return { captchaId, question: `${a} + ${b} = ?` };
 }
 
-function verifyCaptcha(captchaId, captchaAnswer) {
-  if (!captchaId || typeof captchaAnswer !== 'string') {
-    return { ok: false, error: 'Captcha is required' };
-  }
+function checkCaptcha(captchaId, captchaAnswer) {
+  if (!captchaId || typeof captchaAnswer !== 'string') return { ok: false, error: 'Captcha is required' };
+
   const item = captchaStore.get(captchaId);
-  if (!item) {
-    return { ok: false, error: 'Invalid captcha. Please refresh and try again' };
-  }
+  if (!item) return { ok: false, error: 'Invalid captcha. Please refresh and try again' };
+
   captchaStore.delete(captchaId);
+
   if (Date.now() > item.expiresAt) {
     return { ok: false, error: 'Captcha expired. Please refresh and try again' };
   }
+
   if (item.answer !== captchaAnswer.trim()) {
     return { ok: false, error: 'Incorrect captcha answer' };
   }
-  return { ok: true };
-}
 
-function cleanupExpiredCaptchas() {
-  const now = Date.now();
-  for (const [id, value] of captchaStore.entries()) {
-    if (value.expiresAt <= now) {
-      captchaStore.delete(id);
-    }
-  }
+  return { ok: true };
 }
 
 function auth(req, res, next) {
@@ -223,14 +183,50 @@ function auth(req, res, next) {
     return res.status(401).json({ error: 'Missing token' });
   }
 
-  const token = header.split(' ')[1];
   try {
-    const payload = jwt.verify(token, JWT_SECRET);
-    req.user = payload;
+    const token = header.split(' ')[1];
+    req.user = jwt.verify(token, JWT_SECRET);
     return next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid token' });
   }
+}
+
+async function getDueHabitsForDate(userId, dateStr) {
+  const targetDate = new Date(`${dateStr}T00:00:00`);
+  const habits = await all(
+    'SELECT id, name, schedule_type, days_of_week, created_at FROM habits WHERE user_id = ? ORDER BY id DESC',
+    [userId]
+  );
+
+  const entries = await all(
+    `
+    SELECT e.habit_id, e.completed, COALESCE(e.notes, '') AS notes
+    FROM habit_entries e
+    JOIN habits h ON h.id = e.habit_id
+    WHERE h.user_id = ? AND e.entry_date = ?
+    `,
+    [userId, dateStr]
+  );
+
+  const entryMap = new Map();
+  for (const e of entries) entryMap.set(e.habit_id, e);
+
+  const result = [];
+  for (const habit of habits) {
+    if (!isHabitDueOnDate(habit, targetDate)) continue;
+    const entry = entryMap.get(habit.id);
+    result.push({
+      habitId: habit.id,
+      name: habit.name,
+      scheduleType: habit.schedule_type,
+      daysOfWeek: habit.days_of_week || '',
+      completed: entry ? Number(entry.completed) : 0,
+      notes: entry ? entry.notes : '',
+    });
+  }
+
+  return result;
 }
 
 app.get('/api/health', (_req, res) => {
@@ -238,33 +234,35 @@ app.get('/api/health', (_req, res) => {
 });
 
 app.get('/api/captcha', (_req, res) => {
-  cleanupExpiredCaptchas();
-  return res.json(createCaptchaChallenge());
+  cleanupCaptchaStore();
+  res.json(createCaptcha());
 });
 
 app.post('/api/register', async (req, res) => {
   try {
     const { email, password, captchaId, captchaAnswer } = req.body;
-    if (!email || !password || password.length < 6) {
-      return res.status(400).json({ error: 'Valid email and password (min 6 chars) required' });
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password required' });
     }
-    const captcha = verifyCaptcha(captchaId, captchaAnswer);
+
+    const captcha = checkCaptcha(captchaId, captchaAnswer);
     if (!captcha.ok) {
       return res.status(400).json({ error: captcha.error });
     }
 
-    const existing = await get('SELECT id FROM users WHERE email = ?', [email.toLowerCase()]);
+    const existing = await get('SELECT id FROM users WHERE email = ?', [String(email).toLowerCase()]);
     if (existing) {
       return res.status(409).json({ error: 'Email already registered' });
     }
 
-    const passwordHash = await bcrypt.hash(password, 10);
+    const hash = await bcrypt.hash(String(password), 10);
     const result = await run('INSERT INTO users (email, password_hash) VALUES (?, ?)', [
-      email.toLowerCase(),
-      passwordHash,
+      String(email).toLowerCase(),
+      hash,
     ]);
 
-    const token = jwt.sign({ userId: result.lastID, email: email.toLowerCase() }, JWT_SECRET, {
+    const token = jwt.sign({ userId: result.lastID, email: String(email).toLowerCase() }, JWT_SECRET, {
       expiresIn: '7d',
     });
 
@@ -277,30 +275,29 @@ app.post('/api/register', async (req, res) => {
 app.post('/api/login', async (req, res) => {
   try {
     const { email, password, captchaId, captchaAnswer } = req.body;
+
     if (!email || !password) {
       return res.status(400).json({ error: 'Email and password required' });
     }
-    const captcha = verifyCaptcha(captchaId, captchaAnswer);
+
+    const captcha = checkCaptcha(captchaId, captchaAnswer);
     if (!captcha.ok) {
       return res.status(400).json({ error: captcha.error });
     }
 
     const user = await get('SELECT id, email, password_hash FROM users WHERE email = ?', [
-      email.toLowerCase(),
+      String(email).toLowerCase(),
     ]);
     if (!user) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const isMatch = await bcrypt.compare(password, user.password_hash);
-    if (!isMatch) {
+    const ok = await bcrypt.compare(String(password), user.password_hash);
+    if (!ok) {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, {
-      expiresIn: '7d',
-    });
-
+    const token = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, { expiresIn: '7d' });
     return res.json({ token });
   } catch (err) {
     return res.status(500).json({ error: 'Server error' });
@@ -309,11 +306,11 @@ app.post('/api/login', async (req, res) => {
 
 app.get('/api/habits', auth, async (req, res) => {
   try {
-    const habits = await all(
+    const rows = await all(
       'SELECT id, name, schedule_type AS scheduleType, days_of_week AS daysOfWeek FROM habits WHERE user_id = ? ORDER BY id DESC',
       [req.user.userId]
     );
-    return res.json(habits);
+    return res.json(rows);
   } catch (err) {
     return res.status(500).json({ error: 'Server error' });
   }
@@ -322,28 +319,23 @@ app.get('/api/habits', auth, async (req, res) => {
 app.post('/api/habits', auth, async (req, res) => {
   try {
     const { name, scheduleType, daysOfWeek } = req.body;
-    if (!name || !name.trim()) {
+    if (!name || !String(name).trim()) {
       return res.status(400).json({ error: 'Habit name required' });
     }
 
-    const schedule = parseScheduleInput(scheduleType, daysOfWeek);
+    const schedule = normalizeSchedule(scheduleType, daysOfWeek);
     if (schedule.error) {
       return res.status(400).json({ error: schedule.error });
     }
 
     const result = await run(
       'INSERT INTO habits (user_id, name, schedule_type, days_of_week) VALUES (?, ?, ?, ?)',
-      [
-        req.user.userId,
-        name.trim(),
-        schedule.scheduleType,
-        schedule.daysOfWeekCsv,
-      ]
+      [req.user.userId, String(name).trim(), schedule.scheduleType, schedule.daysOfWeekCsv]
     );
 
     return res.status(201).json({
       id: result.lastID,
-      name: name.trim(),
+      name: String(name).trim(),
       scheduleType: schedule.scheduleType,
       daysOfWeek: schedule.daysOfWeekCsv,
     });
@@ -357,38 +349,34 @@ app.put('/api/habits/:id', auth, async (req, res) => {
     const habitId = Number(req.params.id);
     const { name, scheduleType, daysOfWeek } = req.body;
 
-    if (!Number.isInteger(habitId) || habitId <= 0) {
-      return res.status(400).json({ error: 'Invalid habit id' });
-    }
-    if (!name || !name.trim()) {
+    if (!name || !String(name).trim()) {
       return res.status(400).json({ error: 'Habit name required' });
     }
 
-    const habit = await get(
+    const existing = await get(
       'SELECT id, schedule_type AS scheduleType, days_of_week AS daysOfWeek FROM habits WHERE id = ? AND user_id = ?',
       [habitId, req.user.userId]
     );
-    if (!habit) {
+    if (!existing) {
       return res.status(404).json({ error: 'Habit not found' });
     }
 
-    const schedule = parseScheduleInput(
-      scheduleType || habit.scheduleType,
-      daysOfWeek !== undefined ? daysOfWeek : habit.daysOfWeek ? habit.daysOfWeek.split(',') : []
+    const schedule = normalizeSchedule(
+      scheduleType || existing.scheduleType,
+      daysOfWeek !== undefined ? daysOfWeek : String(existing.daysOfWeek || '').split(',').filter(Boolean)
     );
     if (schedule.error) {
       return res.status(400).json({ error: schedule.error });
     }
 
-    const nextName = name.trim();
     await run(
       'UPDATE habits SET name = ?, schedule_type = ?, days_of_week = ? WHERE id = ? AND user_id = ?',
-      [nextName, schedule.scheduleType, schedule.daysOfWeekCsv, habitId, req.user.userId]
+      [String(name).trim(), schedule.scheduleType, schedule.daysOfWeekCsv, habitId, req.user.userId]
     );
 
     return res.json({
       id: habitId,
-      name: nextName,
+      name: String(name).trim(),
       scheduleType: schedule.scheduleType,
       daysOfWeek: schedule.daysOfWeekCsv,
     });
@@ -400,20 +388,13 @@ app.put('/api/habits/:id', auth, async (req, res) => {
 app.delete('/api/habits/:id', auth, async (req, res) => {
   try {
     const habitId = Number(req.params.id);
-    if (!Number.isInteger(habitId) || habitId <= 0) {
-      return res.status(400).json({ error: 'Invalid habit id' });
-    }
-
-    const habit = await get('SELECT id FROM habits WHERE id = ? AND user_id = ?', [
-      habitId,
-      req.user.userId,
-    ]);
-    if (!habit) {
-      return res.status(404).json({ error: 'Habit not found' });
-    }
 
     await run('DELETE FROM habit_entries WHERE habit_id = ?', [habitId]);
-    await run('DELETE FROM habits WHERE id = ? AND user_id = ?', [habitId, req.user.userId]);
+    const result = await run('DELETE FROM habits WHERE id = ? AND user_id = ?', [habitId, req.user.userId]);
+
+    if (!result.changes) {
+      return res.status(404).json({ error: 'Habit not found' });
+    }
 
     return res.json({ ok: true });
   } catch (err) {
@@ -423,38 +404,9 @@ app.delete('/api/habits/:id', auth, async (req, res) => {
 
 app.get('/api/entries/today', auth, async (req, res) => {
   try {
-    const today = new Date();
-    const todayIso = today.toISOString().slice(0, 10);
-    const dayOfWeek = today.getDay();
-
-    const rows = await all(
-      `
-      SELECT
-        h.id AS habitId,
-        h.name,
-        h.schedule_type AS scheduleType,
-        h.days_of_week AS daysOfWeek,
-        COALESCE(e.completed, 0) AS completed,
-        COALESCE(e.notes, '') AS notes
-      FROM habits h
-      LEFT JOIN habit_entries e
-        ON e.habit_id = h.id
-       AND e.entry_date = ?
-      WHERE h.user_id = ?
-        AND (
-          h.schedule_type = 'daily'
-          OR (h.schedule_type = 'weekly' AND CAST(strftime('%w', h.created_at) AS INTEGER) = ?)
-          OR (
-            h.schedule_type = 'specific_days'
-            AND instr(',' || h.days_of_week || ',', ',' || ? || ',') > 0
-          )
-        )
-      ORDER BY h.id DESC
-      `,
-      [todayIso, req.user.userId, dayOfWeek, String(dayOfWeek)]
-    );
-
-    return res.json({ date: todayIso, habits: rows });
+    const today = formatDateYmd(new Date());
+    const habits = await getDueHabitsForDate(req.user.userId, today);
+    return res.json({ date: today, habits });
   } catch (err) {
     return res.status(500).json({ error: 'Server error' });
   }
@@ -462,51 +414,13 @@ app.get('/api/entries/today', auth, async (req, res) => {
 
 app.get('/api/entries/day', auth, async (req, res) => {
   try {
-    const { date } = req.query;
-    if (typeof date !== 'string') {
+    const date = String(req.query.date || '');
+    if (!isYmd(date)) {
       return res.status(400).json({ error: 'date query param is required (YYYY-MM-DD)' });
     }
-    const targetDate = parseDateYmd(date);
-    if (!targetDate) {
-      return res.status(400).json({ error: 'Invalid date format. Use YYYY-MM-DD' });
-    }
 
-    const habits = await all(
-      `
-      SELECT id, name, schedule_type, days_of_week, created_at
-      FROM habits
-      WHERE user_id = ?
-      ORDER BY id DESC
-      `,
-      [req.user.userId]
-    );
-
-    const entries = await all(
-      `
-      SELECT e.habit_id, e.completed, COALESCE(e.notes, '') AS notes
-      FROM habit_entries e
-      JOIN habits h ON h.id = e.habit_id
-      WHERE h.user_id = ? AND e.entry_date = ?
-      `,
-      [req.user.userId, date]
-    );
-    const entryByHabitId = new Map(entries.map((e) => [e.habit_id, e]));
-
-    const dueHabits = habits
-      .filter((habit) => isHabitDueOnDate(habit, targetDate))
-      .map((habit) => {
-        const entry = entryByHabitId.get(habit.id);
-        return {
-          habitId: habit.id,
-          name: habit.name,
-          scheduleType: habit.schedule_type,
-          daysOfWeek: habit.days_of_week || '',
-          completed: entry ? entry.completed : 0,
-          notes: entry ? entry.notes : '',
-        };
-      });
-
-    return res.json({ date, habits: dueHabits });
+    const habits = await getDueHabitsForDate(req.user.userId, date);
+    return res.json({ date, habits });
   } catch (err) {
     return res.status(500).json({ error: 'Server error' });
   }
@@ -514,60 +428,56 @@ app.get('/api/entries/day', auth, async (req, res) => {
 
 app.get('/api/entries/month', auth, async (req, res) => {
   try {
-    const { month } = req.query;
-    if (typeof month !== 'string' || !/^\d{4}-\d{2}$/.test(month)) {
+    const month = String(req.query.month || '');
+    if (!isYm(month)) {
       return res.status(400).json({ error: 'month query param is required (YYYY-MM)' });
     }
 
     const [yearStr, monthStr] = month.split('-');
     const year = Number(yearStr);
     const monthIndex = Number(monthStr) - 1;
+
     const firstDay = new Date(year, monthIndex, 1);
-    if (Number.isNaN(firstDay.getTime()) || firstDay.getMonth() !== monthIndex) {
-      return res.status(400).json({ error: 'Invalid month format. Use YYYY-MM' });
-    }
     const lastDay = new Date(year, monthIndex + 1, 0);
-    const startYmd = formatDateYmd(firstDay);
-    const endYmd = formatDateYmd(lastDay);
 
     const habits = await all(
-      `
-      SELECT id, name, schedule_type, days_of_week, created_at
-      FROM habits
-      WHERE user_id = ?
-      ORDER BY id DESC
-      `,
+      'SELECT id, schedule_type, days_of_week, created_at FROM habits WHERE user_id = ?',
       [req.user.userId]
     );
+
+    const startYmd = formatDateYmd(firstDay);
+    const endYmd = formatDateYmd(lastDay);
 
     const entries = await all(
       `
       SELECT e.habit_id, e.entry_date, e.completed
       FROM habit_entries e
       JOIN habits h ON h.id = e.habit_id
-      WHERE h.user_id = ?
-        AND e.entry_date >= ?
-        AND e.entry_date <= ?
+      WHERE h.user_id = ? AND e.entry_date >= ? AND e.entry_date <= ?
       `,
       [req.user.userId, startYmd, endYmd]
     );
-    const entriesByDayHabit = new Map(
-      entries.map((e) => [`${e.entry_date}::${e.habit_id}`, Number(e.completed)])
-    );
+
+    const entryMap = new Map();
+    for (const item of entries) {
+      entryMap.set(`${item.entry_date}::${item.habit_id}`, Number(item.completed));
+    }
 
     const days = [];
     for (let d = 1; d <= lastDay.getDate(); d += 1) {
       const current = new Date(year, monthIndex, d);
       const date = formatDateYmd(current);
-      const dueHabits = habits.filter((habit) => isHabitDueOnDate(habit, current));
-      const totalHabits = dueHabits.length;
+
+      let totalHabits = 0;
       let completedHabits = 0;
-      dueHabits.forEach((habit) => {
-        const key = `${date}::${habit.id}`;
-        if (entriesByDayHabit.get(key) === 1) {
+
+      for (const habit of habits) {
+        if (!isHabitDueOnDate(habit, current)) continue;
+        totalHabits += 1;
+        if (entryMap.get(`${date}::${habit.id}`) === 1) {
           completedHabits += 1;
         }
-      });
+      }
 
       let status = 'none';
       if (totalHabits > 0) {
@@ -586,24 +496,19 @@ app.get('/api/entries/month', auth, async (req, res) => {
 app.post('/api/entries/today', auth, async (req, res) => {
   try {
     const { habitId, completed, notes } = req.body;
+
     if (!habitId || typeof completed !== 'boolean') {
       return res.status(400).json({ error: 'habitId and completed(boolean) are required' });
     }
-    const hasNotes = typeof notes === 'string';
-    if (hasNotes && notes.length > 500) {
-      return res.status(400).json({ error: 'Notes must be 500 characters or fewer' });
-    }
 
-    const habit = await get('SELECT id FROM habits WHERE id = ? AND user_id = ?', [
-      habitId,
-      req.user.userId,
-    ]);
+    const habit = await get('SELECT id FROM habits WHERE id = ? AND user_id = ?', [habitId, req.user.userId]);
     if (!habit) {
       return res.status(404).json({ error: 'Habit not found' });
     }
 
-    const today = new Date().toISOString().slice(0, 10);
-    if (hasNotes) {
+    const today = formatDateYmd(new Date());
+
+    if (typeof notes === 'string') {
       await run(
         `
         INSERT INTO habit_entries (habit_id, entry_date, completed, notes)
