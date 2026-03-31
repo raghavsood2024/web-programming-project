@@ -1,20 +1,6 @@
 :root {
   font-family: "Segoe UI", Arial, sans-serif;
   line-height: 1.4;
-  --bg: #f3f5fb;
-  --text: #141728;
-  --muted: rgba(20, 23, 40, 0.68);
-  --card-bg: rgba(255, 255, 255, 0.92);
-  --border: rgba(28, 34, 64, 0.12);
-  --input-bg: rgba(255, 255, 255, 0.8);
-  --button-bg: linear-gradient(135deg, #86d6de, #b7d5a1);
-  --button-text: #16303a;
-  --link: #335f56;
-  --error: #b42318;
-  --shadow: 0 24px 60px rgba(28, 35, 71, 0.16);
-}
-
-[data-theme='dark'] {
   --bg: #0f1020;
   --text: #eef2ff;
   --muted: rgba(238, 242, 255, 0.72);
@@ -27,6 +13,7 @@
   --error: #ff8d8d;
   --shadow: 0 28px 70px rgba(5, 7, 20, 0.55);
 }
+
 
 * {
   box-sizing: border-box;
@@ -149,75 +136,6 @@ body::before {
   color: #eef1fa;
 }
 
-.theme-toggle {
-  position: relative;
-  width: 4.2rem;
-  height: 2.1rem;
-  padding: 0;
-  border-radius: 999px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(255, 255, 255, 0.08);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.theme-toggle-icon {
-  position: absolute;
-  top: 50%;
-  width: 1rem;
-  height: 1rem;
-  transform: translateY(-50%);
-}
-
-.theme-toggle-icon-light {
-  left: 0.45rem;
-  border-radius: 50%;
-  background: #f7d96d;
-  box-shadow: 0 0 0 2px rgba(247, 217, 109, 0.15);
-}
-
-.theme-toggle-icon-dark {
-  right: 0.45rem;
-}
-
-.theme-toggle-icon-dark::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: #dfe6ff;
-}
-
-.theme-toggle-icon-dark::after {
-  content: '';
-  position: absolute;
-  width: 0.75rem;
-  height: 0.75rem;
-  top: 0.02rem;
-  left: 0.34rem;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.theme-toggle-knob {
-  position: absolute;
-  top: 0.18rem;
-  width: 1.65rem;
-  height: 1.65rem;
-  border-radius: 50%;
-  background: rgba(255, 255, 255, 0.22);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
-  transition: transform 180ms ease;
-}
-
-.theme-toggle-knob-light {
-  transform: translateX(0.95rem);
-}
-
-.theme-toggle-knob-dark {
-  transform: translateX(-0.95rem);
-}
 
 .auth-stage {
   min-height: calc(100vh - 5rem);
@@ -683,3 +601,4 @@ ul {
     flex-direction: column;
   }
 }
+

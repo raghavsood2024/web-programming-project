@@ -66,7 +66,6 @@ function parseDaysCsv(csv) {
 
 export default function App() {
   const [token, setToken] = useState(localStorage.getItem('token') || '');
-  const [theme, setTheme] = useState(localStorage.getItem('theme') || 'light');
   const [activeTab, setActiveTab] = useState('today');
 
   const [email, setEmail] = useState('');
@@ -100,10 +99,6 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
-  useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
-    localStorage.setItem('theme', theme);
-  }, [theme]);
 
   useEffect(() => {
     if (!token && !captchaId) {
@@ -377,16 +372,6 @@ export default function App() {
               <span>TrackIt</span>
             </div>
           </div>
-
-          <button
-            type="button"
-            className="theme-toggle"
-            aria-label={`Switch to ${theme === 'light' ? 'dark' : 'light'} theme`}
-            onClick={() => setTheme((p) => (p === 'light' ? 'dark' : 'light'))}
-          >
-            <span className={`theme-toggle-icon theme-toggle-icon-${theme}`} aria-hidden="true" />
-            <span className={`theme-toggle-knob theme-toggle-knob-${theme}`} />
-          </button>
         </header>
 
         <section className="auth-stage">
@@ -454,11 +439,7 @@ export default function App() {
     <main className="container">
       <header className="header">
         <h1>TrackIt</h1>
-        <div className="header-actions">
-          <button type="button" onClick={() => setTheme((p) => (p === 'light' ? 'dark' : 'light'))}>
-            {theme === 'light' ? 'Dark Mode' : 'Light Mode'}
-          </button>
-          <button type="button" onClick={logout}>Logout</button>
+        <div className="header-actions"><button type="button" onClick={logout}>Logout</button>
         </div>
       </header>
 
@@ -623,6 +604,7 @@ export default function App() {
     </main>
   );
 }
+
 
 
 
